@@ -1,5 +1,5 @@
 [project]
-name = "precondition-opt"
+name = "precondition"
 description = "Preconditioning optimizers."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -28,14 +28,11 @@ repository = "https://github.com/google-research/precondition"
 # Development deps (unittest, linting, formating,...)
 # Installed through `pip install .[dev]`
 dev = [
-    "absl-py>=0.8.1",
-    "chex",
-    "flax",
-    "optax",
     "pytest",
     "pytest-xdist",
     "pylint>=2.6.0",
     "pyink",
+    "absl-py>=0.8.1",
 ]
 
 [tool.pyink]
@@ -48,6 +45,3 @@ pyink-use-majority-quotes = true
 [build-system]
 requires = ["flit_core >=3.5,<4"]
 build-backend = "flit_core.buildapi"
-
-[tool.flit.module]
-name = "precondition"
