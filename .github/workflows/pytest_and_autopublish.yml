@@ -18,7 +18,7 @@ jobs:
     # Install deps
     - uses: actions/setup-python@v4
       with:
-        python-version: 3.8
+        python-version: 3.9
         # Uncomment to cache of pip dependencies (if tests too slow)
         # cache: pip
         # cache-dependency-path: '**/pyproject.toml'
@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 30
-
+    environment: pypi publish
     steps:
     # Publish the package (if local `__version__` > pip version)
     - uses: etils-actions/pypi-auto-publish@v1
