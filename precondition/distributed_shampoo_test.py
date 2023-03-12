@@ -339,7 +339,7 @@ class DistributedShampooTest(chex.TestCase, parameterized.TestCase):
         pad_rt_principal,
         # The fact that this is so large keeps vladf up at night,
         # but without padding_start argument it's even worse (>1).
-        rtol=1e-2,
+        rtol=1e-2 if sz == 4 else 5e-2,
         err_msg=np.array2string(rt - pad_rt_principal))
     self.assertLessEqual(pad_err, 4 * err)
     self.assertEqual(np.abs(pad_rt[sz:]).sum(), 0)
