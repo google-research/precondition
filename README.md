@@ -1,9 +1,9 @@
 # `precondition`: Preconditioning Optimizers
 
 [![Unittests](https://github.com/google-research/precondition/actions/workflows/pytest_and_autopublish.yml/badge.svg)](https://github.com/google-research/precondition/actions/workflows/pytest_and_autopublish.yml)
-[![PyPI version](https://badge.fury.io/py/precondition.svg)](https://badge.fury.io/py/precondition-opt)
+[![PyPI version](https://badge.fury.io/py/precondition-opt.svg)](https://badge.fury.io/py/precondition-opt)
 
-Installation
+Installation (note package name is `precondition` but pypi distribution name is `precondition-opt`):
 ```
 pip3 install -U precondition-opt
 ```
