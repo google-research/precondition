@@ -1,7 +1,12 @@
 # `precondition`: Preconditioning Optimizers
 
 [![Unittests](https://github.com/google-research/precondition/actions/workflows/pytest_and_autopublish.yml/badge.svg)](https://github.com/google-research/precondition/actions/workflows/pytest_and_autopublish.yml)
-[![PyPI version](https://badge.fury.io/py/precondition.svg)](https://badge.fury.io/py/precondition)
+[![PyPI version](https://badge.fury.io/py/precondition.svg)](https://badge.fury.io/py/precondition-opt)
+
+Installation
+```
+pip3 install -U precondition-opt
+```
 
 Currently, this contains several preconditioning optimizer implementations. Please refer to the citations below.
 
