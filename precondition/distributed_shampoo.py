@@ -220,6 +220,10 @@ class FDDiagnostics:
   # ||A - A_k||_1 / size(A)
   entrywise_err: chex.Array = _default_zero_field()
 
+  # Trace ||A||_F^2 = tr A^2, which normalizes the frobenius error.
+  # It's equal to the sum of squared singular values of A.
+  total_frob: chex.Array = _default_zero_field()
+
   @classmethod
   def create(
       cls: type["FDDiagnostics"],
@@ -237,6 +241,7 @@ class FDDiagnostics:
       frob: jnp.ndarray,
       expected_frob: jnp.ndarray,
       entrywise_svd_err: jnp.ndarray,
+      total_frob: jnp.ndarray,
   ) -> "FDDiagnostics":
     """Generates FD diagnostics from the result of the routine."""
     max_size, rank = eigvecs.shape
@@ -292,6 +297,7 @@ class FDDiagnostics:
         square_frob=frob,
         heuristic_frob=expected_frob,
         entrywise_err=entrywise_svd_err,
+        total_frob=total_frob,
     )
 
 
@@ -1199,7 +1205,8 @@ def _fd_update_root(
   diff = recovered - updated
   frob = jnp.square(diff).sum()
   entrywise = jnp.abs(diff).sum() / (padding_start**2 + padding_start * rank)
-  expected_frob = jnp.sqrt(jnp.square(s[rank:]).sum())
+  expected_frob = jnp.square(s[rank:]).sum()
+  total_frob = jnp.square(updated).sum()
   # TODO(vladf): consider some condition for high frob norm
 
   # Compute inversion after tail shift.
@@ -1238,6 +1245,7 @@ def _fd_update_root(
             frob,
             expected_frob,
             entrywise,
+            total_frob,
         )
     )
   if padding_start is not None:
