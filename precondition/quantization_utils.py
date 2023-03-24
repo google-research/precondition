@@ -37,7 +37,7 @@ class QuantizedValue:
   @classmethod
   def from_float_value(cls, fvalue, quantized_dtype, extract_diagonal=False):
     if isinstance(fvalue, list) and not fvalue:
-      return QuantizedValue([], [], [], quantized_dtype, extract_diagonal, [])
+      return QuantizedValue([], [], [], quantized_dtype, extract_diagonal, [])  # pytype: disable=wrong-arg-types  # numpy-scalars
     quantized, diagonal_fvalue, bucket_size = QuantizedValue.quantize(
         fvalue, quantized_dtype, extract_diagonal)
     return QuantizedValue(quantized, diagonal_fvalue, bucket_size,
