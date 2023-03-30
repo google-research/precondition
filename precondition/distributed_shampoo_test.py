@@ -1,4 +1,4 @@
-# Copyright 2022 The precondition Authors.
+# Copyright 2023 The precondition Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -285,6 +285,58 @@ class DistributedShampooTest(chex.TestCase, parameterized.TestCase):
     chex.assert_tree_all_finite(state)
     updates, state = transform_fn(self.per_step_updates, state, params)
     chex.assert_tree_all_finite((params, updates, state))
+
+  @chex.all_variants(with_pmap=False)
+  @parameterized.named_parameters([
+      {
+          'testcase_name': 'preconditioning_compute_steps_schedule',
+          'preconditioning_compute_steps': 2,
+          'end_preconditioning_steps': 100,
+      },
+      {
+          'testcase_name': (
+              'preconditioning_compute_steps_schedule_short_circuit'
+          ),
+          'preconditioning_compute_steps': 1,
+          'end_preconditioning_steps': 1,
+      },
+  ])
+  def test_distributed_shampoo_preconditioning_compute_steps_schedule(
+      self, preconditioning_compute_steps, end_preconditioning_steps
+  ):
+    params = self.init_params
+
+    base_lr = 0.1
+
+    def lr_fn(t):
+      decay_factor = (t + 1) ** -0.5
+      return base_lr * decay_factor
+
+    optim = distributed_shampoo.distributed_shampoo(
+        lr_fn,
+        32,
+        batch_axis_name='batch',
+        preconditioning_compute_steps=preconditioning_compute_steps,
+        decay_preconditioning_compute_steps=True,
+        end_preconditioning_compute_steps=end_preconditioning_steps,
+    )
+    init_fn = self.variant(optim.init)
+    transform_fn = self.variant(optim.update)
+
+    updates = self.per_step_updates
+
+    def _update(unused_batch):
+      return transform_fn(updates, state, params)
+
+    state = init_fn(params)
+    chex.assert_tree_all_finite(state)
+    pmap_fn = jax.pmap(_update, axis_name='batch')
+
+    updates, state = pmap_fn(jnp.array([1.0]))
+    chex.assert_tree_all_finite((params, updates, state))
+    for _ in range(5):
+      updates, state = pmap_fn(jnp.array([1.0]))
+      chex.assert_tree_all_finite((params, updates, state))
 
   def _gen_symmetrix_matrix(self, dim, condition_number):
     u = scipy.stats.ortho_group.rvs(

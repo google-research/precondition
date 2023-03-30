@@ -1,4 +1,4 @@
-# Copyright 2022 The precondition Authors.
+# Copyright 2023 The precondition Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,6 +40,41 @@ _MAT_INV_PTH_ROOT_DTYPE = jnp.float64
 
 # Small epsilon to avoid divide by zero.
 _EPSILON = 1e-25
+
+
+def preconditioning_compute_steps_schedule(
+    lr_fn,
+    start_preconditioning_compute_steps,
+    end_preconditioning_compute_steps,
+    step,
+):
+  """Schedule preconditioning_compute_steps over time.
+
+  Increases preconditioning_compute_steps following learning_rate schedule fn
+  from start_preconditioning_compute_steps to end_preconditioning_compute_steps.
+
+  Rounds the current preconditioning_compute_steps_t value to the nearest 10.
+
+  Args:
+    lr_fn: Learning rate schedule function.
+    start_preconditioning_compute_steps: The value of
+      preconditioning_compute_steps to use at start of training.
+    end_preconditioning_compute_steps: The value of
+      preconditioning_compute_steps to use at end of training.
+    step: Current training step.
+
+  Returns:
+    The current number of steps to compute preconditioners after.
+  """
+  base_lr = lr_fn(0)
+  lr = lr_fn(step)
+  decay_factor = lr / base_lr
+
+  preconditioning_compute_steps_t = (
+      start_preconditioning_compute_steps
+      + (1 - decay_factor) * end_preconditioning_compute_steps
+  )
+  return jnp.maximum((preconditioning_compute_steps_t // 10) * 10, 1)
 
 
 def _default_zero_field():
@@ -1674,6 +1709,58 @@ class Preconditioner:
     return g
 
 
+def _update_preconditioners_fn(
+    update_preconditioners_every_fn,
+    update_preconditioners_fn,
+    steps,
+    scheduled,
+    quantized=False):
+  """Calls the appropriate preconditioner update function, depending on how often we want to update it."""
+  if quantized:
+    if scheduled:
+      (quantized_preconditioners_flat, quantized_diagonals_flat,
+       quantized_bucket_sizes_flat, metrics_flat) = lax.cond(
+           steps == 1,
+           update_preconditioners_every_fn,
+           update_preconditioners_fn)
+    else:
+      if steps == 1:
+        (
+            quantized_preconditioners_flat,
+            quantized_diagonals_flat,
+            quantized_bucket_sizes_flat,
+            metrics_flat,
+        ) = update_preconditioners_every_fn()
+      else:
+        (
+            quantized_preconditioners_flat,
+            quantized_diagonals_flat,
+            quantized_bucket_sizes_flat,
+            metrics_flat,
+        ) = update_preconditioners_fn()
+
+    return (
+        quantized_preconditioners_flat,
+        quantized_diagonals_flat,
+        quantized_bucket_sizes_flat,
+        metrics_flat,
+    )
+  else:
+    if scheduled:
+      preconditioners_flat, metrics_flat = lax.cond(
+          steps == 1,
+          update_preconditioners_every_fn,
+          update_preconditioners_fn,
+      )
+    else:
+      if steps == 1:
+        preconditioners_flat, metrics_flat = update_preconditioners_every_fn()
+      else:
+        preconditioners_flat, metrics_flat = update_preconditioners_fn()
+
+    return (preconditioners_flat, metrics_flat, None, None)
+
+
 def _convert_to_parameter_stats(
     global_stats,
     local_stat,
@@ -1770,6 +1857,8 @@ def distributed_shampoo(
     weight_decay=0.0,
     start_preconditioning_step=5,
     preconditioning_compute_steps=1,
+    decay_preconditioning_compute_steps: bool = False,
+    end_preconditioning_compute_steps: Optional[int] = None,
     statistics_compute_steps=1,
     best_effort_shape_interpretation=True,
     graft_type=GraftingType.SGD,
@@ -1845,6 +1934,11 @@ def distributed_shampoo(
     preconditioning_compute_steps: How often to compute preconditioner.
       Performance tuning params for controlling memory and compute requirements.
       Ideally set this and statistics_compute_steps params to 1.
+    decay_preconditioning_compute_steps: Flag to use learning rate schedule to
+      decay preconditioning_compute_steps over time. Defaults to False.
+    end_preconditioning_compute_steps: If decay preconditioning_compute_steps,
+      this sets the maximum value of preconditioning_compute_steps to decay to.
+      Defaults to None.
     statistics_compute_steps: How often to compute statistics.
     best_effort_shape_interpretation: If there are some small dimensions,
       collapse them e.g. [1, 2, 512, 1, 2048, 1, 3, 4] --> [1024, 2048, 12] if
@@ -2420,11 +2514,24 @@ def distributed_shampoo(
       )
       return preconditioners, metrics
 
-    perform_step = state.count % preconditioning_compute_steps == 0
+    scheduled_preconditioning_compute_steps = (
+        decay_preconditioning_compute_steps
+        and end_preconditioning_compute_steps
+        and callable(learning_rate)
+    )
 
-    if preconditioning_compute_steps == 1:
-      new_preconditioners, metrics = _internal_inverse_pth_root_all()
-    else:
+    preconditioning_compute_steps_t = preconditioning_compute_steps
+    if scheduled_preconditioning_compute_steps:
+      preconditioning_compute_steps_t = preconditioning_compute_steps_schedule(
+          learning_rate,
+          preconditioning_compute_steps,
+          end_preconditioning_compute_steps,
+          state.count,
+      )
+
+    perform_step = state.count % preconditioning_compute_steps_t == 0
+
+    def _update_preconditioners():
       # Passing statistics instead of preconditioners as they are similarly
       # shaped tensors. Note statistics will be ignored as we are passing in
       # a large error value.
@@ -2442,8 +2549,16 @@ def distributed_shampoo(
           inverse_failure_threshold)
       metrics_init = metrics_init.replace(inverse_pth_root_errors=new_errors)
       init_state = [preconditioners_init, metrics_init]
-      new_preconditioners, metrics = efficient_cond(
-          perform_step, _internal_inverse_pth_root_all, init_state)
+      return efficient_cond(perform_step, _internal_inverse_pth_root_all,
+                            init_state)
+
+    (new_preconditioners, metrics, _, _) = _update_preconditioners_fn(
+        _internal_inverse_pth_root_all,
+        _update_preconditioners,
+        preconditioning_compute_steps_t,
+        scheduled_preconditioning_compute_steps,
+        quantized=False,
+    )
 
     if generate_training_metrics:
       new_local_stats_flat = _add_metrics_into_local_stats(
@@ -2770,10 +2885,24 @@ def distributed_shampoo(
 
       return preconditioners_flat, metrics_flat
 
-    perform_step = step % preconditioning_compute_steps == 0
-    if preconditioning_compute_steps == 1:
-      preconditioners_flat, metrics_flat = _internal_inverse_pth_root_all()
-    else:
+    scheduled_preconditioning_compute_steps = (
+        decay_preconditioning_compute_steps
+        and end_preconditioning_compute_steps
+        and callable(learning_rate)
+    )
+
+    preconditioning_compute_steps_t = preconditioning_compute_steps
+    if scheduled_preconditioning_compute_steps:
+      preconditioning_compute_steps_t = preconditioning_compute_steps_schedule(
+          learning_rate,
+          preconditioning_compute_steps,
+          end_preconditioning_compute_steps,
+          step,
+      )
+
+    perform_step = step % preconditioning_compute_steps_t == 0
+
+    def _update_preconditioners():
       # Passing statistics instead of preconditioners as they are similarly
       # shaped tensors. Note statistics will be ignored as we are passing in
       # a large error value.
@@ -2787,8 +2916,16 @@ def distributed_shampoo(
               generate_fd_metrics
           ).replace(inverse_pth_root_errors=inverse_failure_threshold))
       init_state = [preconditioners_init, metrics_init]
-      preconditioners_flat, metrics_flat = efficient_cond(
-          perform_step, _internal_inverse_pth_root_all, init_state)
+      return efficient_cond(perform_step, _internal_inverse_pth_root_all,
+                            init_state)
+
+    (preconditioners_flat, metrics_flat, _, _) = _update_preconditioners_fn(
+        _internal_inverse_pth_root_all,
+        _update_preconditioners,
+        preconditioning_compute_steps_t,
+        scheduled_preconditioning_compute_steps,
+        quantized=False,
+    )
 
     def _skip(error):
       condition = jnp.logical_or(
@@ -2984,12 +3121,24 @@ def distributed_shampoo(
       return (quantized_preconditioners_flat, quantized_diagonals_flat,
               quantized_bucket_sizes_flat, metrics_flat)
 
-    perform_step = step % preconditioning_compute_steps == 0
-    if preconditioning_compute_steps == 1:
-      (quantized_preconditioners_flat, quantized_diagonals_flat,
-       quantized_bucket_sizes_flat, metrics_flat) = (
-           _internal_inverse_pth_root_all())
-    else:
+    scheduled_preconditioning_compute_steps = (
+        decay_preconditioning_compute_steps
+        and end_preconditioning_compute_steps
+        and callable(learning_rate)
+    )
+
+    preconditioning_compute_steps_t = preconditioning_compute_steps
+    if scheduled_preconditioning_compute_steps:
+      preconditioning_compute_steps_t = preconditioning_compute_steps_schedule(
+          learning_rate,
+          preconditioning_compute_steps,
+          end_preconditioning_compute_steps,
+          step,
+      )
+
+    perform_step = step % preconditioning_compute_steps_t == 0
+
+    def _update_quantized_preconditioners():
       # Passing statistics instead of preconditioners as they are similarly
       # shaped tensors. Note statistics will be ignored as we are passing in
       # a large error value.
@@ -3009,10 +3158,21 @@ def distributed_shampoo(
           quantized_preconditioners_init, quantized_diagonals_init,
           quantized_bucket_sizes_init, metrics_init
       ]
-      (quantized_preconditioners_flat, quantized_diagonals_flat,
-       quantized_bucket_sizes_flat, metrics_flat) = (
-           efficient_cond(perform_step, _internal_inverse_pth_root_all,
-                          init_state))
+      return efficient_cond(perform_step, _internal_inverse_pth_root_all,
+                            init_state)
+
+    (
+        quantized_preconditioners_flat,
+        quantized_diagonals_flat,
+        quantized_bucket_sizes_flat,
+        metrics_flat,
+    ) = _update_preconditioners_fn(
+        _internal_inverse_pth_root_all,
+        _update_quantized_preconditioners,
+        preconditioning_compute_steps_t,
+        scheduled_preconditioning_compute_steps,
+        quantized=True
+    )
 
     def _skip(error):
       condition = jnp.logical_or(
@@ -3169,9 +3329,22 @@ def distributed_shampoo(
 
       return split(preconditioners), jax.tree_map(split, metrics)
 
-    if preconditioning_compute_steps == 1:
-      preconditioners_flat, metrics_flat = _internal_inverse_pth_root_all()
-    else:
+    scheduled_preconditioning_compute_steps = (
+        decay_preconditioning_compute_steps
+        and end_preconditioning_compute_steps
+        and callable(learning_rate)
+    )
+
+    preconditioning_compute_steps_t = preconditioning_compute_steps
+    if decay_preconditioning_compute_steps and callable(learning_rate):
+      preconditioning_compute_steps_t = preconditioning_compute_steps_schedule(
+          learning_rate,
+          preconditioning_compute_steps,
+          end_preconditioning_compute_steps,
+          step,
+      )
+
+    def _update_preconditioners():
       # Passing statistics instead of preconditioners as they are similarly
       # shaped tensors. Note statistics will be ignored as we are passing in
       # a large init value for error.
@@ -3182,9 +3355,18 @@ def distributed_shampoo(
           lambda x: [x] * n,
           TrainingMetrics(inverse_pth_root_errors=inverse_failure_threshold))
       init_state = [preconditioners_init, metrics_init]
-      perform_step = step % preconditioning_compute_steps == 0
-      preconditioners_flat, metrics_flat = efficient_cond(
-          perform_step, _internal_inverse_pth_root_all, init_state)
+      perform_step = step % preconditioning_compute_steps_t == 0
+      return efficient_cond(
+          perform_step, _internal_inverse_pth_root_all, init_state
+      )
+
+    (preconditioners_flat, metrics_flat, _, _) = _update_preconditioners_fn(
+        _internal_inverse_pth_root_all,
+        _update_preconditioners,
+        preconditioning_compute_steps_t,
+        scheduled_preconditioning_compute_steps,
+        quantized=False,
+    )
 
     def _skip(error):
       condition = jnp.logical_or(
