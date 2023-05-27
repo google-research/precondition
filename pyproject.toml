@@ -14,7 +14,13 @@ classifiers = [
 keywords = []
 
 # pip dependencies of the project
-dependencies = []
+dependencies = [
+  "chex",
+  "flax",
+  "optax",
+  "jax",
+  "numpy"
+]
 
 # This is set automatically by flit using `precondition.__version__`
 dynamic = ["version"]
@@ -28,14 +34,11 @@ repository = "https://github.com/google-research/precondition"
 # Development deps (unittest, linting, formating,...)
 # Installed through `pip install .[dev]`
 dev = [
-    "absl-py>=0.8.1",
-    "chex",
-    "flax",
-    "optax",
-    "pytest",
-    "pytest-xdist",
-    "pylint>=2.6.0",
-    "pyink",
+  "absl-py>=0.8.1",
+  "pytest",
+  "pytest-xdist",
+  "pylint>=2.6.0",
+  "pyink",
 ]
 
 [tool.pyink]
