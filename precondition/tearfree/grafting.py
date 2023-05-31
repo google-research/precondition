@@ -17,8 +17,11 @@
 import copy
 import dataclasses
 import enum
-from typing import NamedTuple
+import functools
+from typing import Any, NamedTuple
 
+import chex
+from flax import struct
 import jax
 from jax import numpy as jnp
 import optax
@@ -49,15 +52,25 @@ class Options:
   Attributes:
     grafting_type: Which optimizer to use for grafting updates.
     second_moment_decay: Second moment accumulator decay, becomes sum if set to
-      1, should be in [0, 1]. Must be 0 if unused (e.g., for SGD/NONE).
-    start_preconditioning_step: when to start applying preconditioning
+      1 (i.e., Adagrad), should be in [0, 1]. Must be 0 if unused (e.g., for
+      SGD/NONE).
+    start_preconditioning_step: When to start applying preconditioning.
+    epsilon: Avoids divide by zero in RMSProp by adding this term to the
+      expression `(epsilon + acc)^(-1/2)` when taking the inverse square root of
+      the accumulator; should be non-negative.
+    skip_preconditioning_any_dim_gt: Skip second-order preconditioning if any
+      dimension of a tensor is greater than this value (only apply grafting
+      update). Argument ignored if NONE grafting.
+    skip_preconditioning_rank1: Skip preconditioning the tensor if the rank is 1
+      or less. Argument ignored if NONE grafting.
   """
 
   grafting_type: GraftingType = GraftingType.RMSPROP
   second_moment_decay: float = 0.999
   start_preconditioning_step: int = 0
-  # TODO(vladf): skip_any_dim_gt
-  # TODO(vladf): skip_rank_1
+  epsilon: float = 1e-23
+  skip_preconditioning_any_dim_gt: int = 4096
+  skip_preconditioning_rank1: bool = True
 
 
 def graft(
@@ -82,13 +95,13 @@ def graft(
     return direction
 
   if options.grafting_type == GraftingType.SGD:
-    return _graft_with(direction, _sgd(), options.start_preconditioning_step)
+    return _graft_with(direction, _sgd(), options)
 
   if options.grafting_type == GraftingType.RMSPROP:
     return _graft_with(
         direction,
-        _rmsprop(options.second_moment_decay),
-        options.start_preconditioning_step,
+        _rmsprop(options),
+        options,
     )
   # check options for validity (SGD/none and no 2nd moment, appropriate range)
   # test to check sharded gradient transform is otherwise identical to
@@ -98,32 +111,17 @@ def graft(
 
 def _validate(options: Options):
   """Raise ValueError if the options have an invalid specification."""
-  no_second_order = options.grafting_type in [
-      GraftingType.NONE,
-      GraftingType.SGD,
-  ]
-
-  if no_second_order and options.second_moment_decay != 0.0:
-    raise ValueError(
-        'second_moment_decay ({}) not 0 for graft ({}) that does not use it'
-        .format(options.second_moment_decay, options.grafting_type)
-    )
-
-  if not (no_second_order or 0 < options.second_moment_decay <= 1.0):
-    raise ValueError(
-        'second_moment_decay ({}) not in (0, 1] for graft ({})'.format(
-            options.second_moment_decay, options.grafting_type
-        )
-    )
-
-  if (
-      options.grafting_type == GraftingType.NONE
-      and options.start_preconditioning_step > 0
-  ):
-    raise ValueError(
-        'start_preconditioning_step ({}) is >0 but grafting_type is NONE'
-        .format(options.start_preconditioning_step)
-    )
+  if options.grafting_type == GraftingType.RMSPROP:
+    if not (0 < options.second_moment_decay <= 1.0):
+      raise ValueError(
+          'second_moment_decay ({}) not in (0, 1] for graft ({})'.format(
+              options.second_moment_decay, options.grafting_type
+          )
+      )
+    if options.epsilon < 0:
+      raise ValueError(
+          'epsilon ({}) should be non-negative'.format(options.epsilon)
+      )
 
 
 def _sgd() -> praxis_shim.ShardedGradientTransformation:
@@ -143,23 +141,18 @@ class RMSPropAccumulator(NamedTuple):
   acc: optax.Updates
 
 
-def _rmsprop(
-    second_moment_decay: float,
-) -> praxis_shim.ShardedGradientTransformation:
+def _rmsprop(options: Options) -> praxis_shim.ShardedGradientTransformation:
   """Create RMSProp sharded gradient transform."""
-  initial_accumulator_value = 1.0
-  epsilon = 1e-7
 
   def init_fn(params):
-    acc = jax.tree_map(
-        lambda x: jnp.full_like(x, initial_accumulator_value), params
-    )
+    acc = jax.tree_map(jnp.zeros_like, params)
     return RMSPropAccumulator(acc=acc)
 
   def update_fn(updates, state, params=None):
     del params
 
     def ema(prev, new):
+      second_moment_decay = options.second_moment_decay
       snew = jnp.square(new)
       if second_moment_decay == 1.0:
         return snew + prev
@@ -167,6 +160,7 @@ def _rmsprop(
         return snew * (1 - second_moment_decay) + second_moment_decay * prev
 
     new_state = RMSPropAccumulator(jax.tree_map(ema, state.acc, updates))
+    epsilon = options.epsilon
     new_updates = jax.tree_map(
         lambda g, acc: g * jax.lax.rsqrt(acc + epsilon), updates, new_state.acc
     )
@@ -197,20 +191,23 @@ class GraftingState(NamedTuple):
 def _graft_with(
     direction: praxis_shim.ShardedGradientTransformation,
     norm: praxis_shim.ShardedGradientTransformation,
-    start_preconditioning_step: int,
+    options: Options,
 ) -> praxis_shim.ShardedGradientTransformation:
   """Created a maybe-grafted update from a base update and a graft one."""
+
+  start_preconditioning_step = options.start_preconditioning_step
+  mask = functools.partial(_mask_skipped, options)
 
   def init_fn(params):
     return GraftingState(
         count=jnp.zeros([], jnp.int32),
-        direction=direction.init(params),
+        direction=direction.init(mask(params)),
         norm=norm.init(params),
     )
 
   def update_fn(updates, state, params=None):
     base_updates, base_state = direction.update(
-        updates, state.direction, params
+        mask(updates), state.direction, mask(params)
     )
     graft_updates, graft_state = norm.update(updates, state.norm, params)
     new_state = GraftingState(
@@ -220,7 +217,10 @@ def _graft_with(
     )
 
     def maybe_graft(graft_upd, base):
+      if _masked(base):
+        return graft_upd
       assert graft_upd.shape == base.shape
+
       base_norm = jnp.linalg.norm(base)
       multiplier = jnp.where(
           base_norm > 0.0, jnp.linalg.norm(graft_upd) / base_norm, 0.0
@@ -231,7 +231,9 @@ def _graft_with(
           graft_upd,
       )
 
-    new_updates = jax.tree_map(maybe_graft, graft_updates, base_updates)
+    new_updates = jax.tree_map(
+        maybe_graft, graft_updates, base_updates, is_leaf=_masked
+    )
     return new_updates, new_state
 
   def init_partition_spec_fn(mdl_params):
@@ -253,3 +255,28 @@ def _graft_with(
       update_fn,
       init_partition_spec_fn,
   )
+
+
+@struct.dataclass
+class _GraftMask:
+  """Helper tuple which masks out params before preconditioning."""
+
+  pass
+
+
+def _mask_skipped(options: Options, tree: chex.ArrayTree) -> chex.ArrayTree:
+  """Masks out arrays to which preconditioning should not be applied."""
+
+  def _maybe_mask(x: jax.Array):
+    if options.skip_preconditioning_rank1 and x.ndim <= 1:
+      return _GraftMask()
+    if any(s > options.skip_preconditioning_any_dim_gt for s in x.shape):
+      return _GraftMask()
+    return x
+
+  return jax.tree_map(_maybe_mask, tree)
+
+
+def _masked(tree_node: Any) -> bool:
+  """Returns whether a tree node has been masked out."""
+  return isinstance(tree_node, _GraftMask)

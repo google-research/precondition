@@ -63,7 +63,9 @@ class OptimizerTest(parameterized.TestCase):
   def _no_graft_no_momentum(self):
     return optimizer.TearfreeOptions(
         grafting_options=grafting.Options(
-            grafting_type=grafting.GraftingType.NONE, second_moment_decay=0.0
+            grafting_type=grafting.GraftingType.NONE,
+            second_moment_decay=0.0,
+            skip_preconditioning_rank1=False,
         ),
         momentum_options=momentum.Options(momentum_decay=0.0),
     )
@@ -147,6 +149,7 @@ class OptimizerTest(parameterized.TestCase):
     options.momentum_options.momentum_decay = 0.9
     options.grafting_options = grafting_options
     grafting_options.start_preconditioning_step = nsteps + 1
+    grafting_options.skip_preconditioning_rank1 = False
     tx = self._grafting_tx_with_momentum(
         grafting_options, options.momentum_options
     )
@@ -157,7 +160,9 @@ class OptimizerTest(parameterized.TestCase):
   def _precondition_at(self, i):
     """Return optimizer with momentum, grafting, and start precon at step i."""
     return optimizer.TearfreeOptions(
-        grafting_options=grafting.Options(start_preconditioning_step=i)
+        grafting_options=grafting.Options(
+            start_preconditioning_step=i, skip_preconditioning_rank1=False
+        )
     )
 
   @parameterized.parameters(
