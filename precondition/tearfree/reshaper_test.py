@@ -43,7 +43,7 @@ def _make_invalid_cases() -> Sequence[dict[str, ...]]:
 
 
 def _make_expected_shape_cases() -> Sequence[dict[str, ...]]:
-  return [
+  cases = [
       {'in_shape': [4], 'merge': 2, 'block': 3, 'out_shape': [6]},
       {'in_shape': [3], 'merge': 2, 'block': 3, 'out_shape': [3]},
       {'in_shape': [1, 3, 1], 'merge': 2, 'block': 3, 'out_shape': [3]},
@@ -62,6 +62,12 @@ def _make_expected_shape_cases() -> Sequence[dict[str, ...]]:
       },
       {'in_shape': [2, 3, 2], 'merge': 6, 'block': 10, 'out_shape': [6, 2]},
   ]
+  for case in cases[:]:
+    if all(i <= case['block'] for i in case['in_shape']):
+      block0 = case.copy()
+      block0['block'] = 0
+      cases.append(block0)
+  return cases
 
 
 class ReshaperTest(parameterized.TestCase):

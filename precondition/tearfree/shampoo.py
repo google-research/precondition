@@ -31,11 +31,15 @@ from precondition.tearfree import praxis_shim
 class Options:
   """Shampoo covariance approximation options.
 
+  See https://arxiv.org/abs/2002.09018.
+
   Attributes:
-    block_size: TODO(vladf)
+    block_size: Determines the block size for Shampoo's block-diagonal gradient
+      covariance approximation.
     update_preconditioners_freq: Number of steps between preconditioner updates.
     update_statistics_freq: Number of steps between statistics updates.
-    second_moment_decay: TODO(vladf). If 1.0 then sums.
+    second_moment_decay: Decay rate for second moment exponential moving
+      average. If 1.0 then sums.
   """
 
   block_size: int = 1024

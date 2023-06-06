@@ -22,6 +22,7 @@ import optax
 from precondition.tearfree import praxis_shim
 from precondition.tearfree import reshaper
 from precondition.tearfree import shampoo
+from precondition.tearfree import sketchy
 
 
 @enum.unique
@@ -29,7 +30,7 @@ class SecondOrderType(enum.Enum):
   """Different second order covariance tracking methods."""
 
   SHAMPOO = 'shampoo'
-  # TODO(vladf): Add Sketchy, SketchyOne, perhaps even AdaFactor (for debug?)
+  SKETCHY = 'sketchy'
 
 
 @dataclasses.dataclass
@@ -40,12 +41,13 @@ class Options:
     merge_dims: Merges small dimensions, see `reshaper.Options.merge_dims`.
     second_order_type: Which optimizer to use for grafting updates.
     shampoo_options: Options for blocked shampoo.
+    sketchy_options: Options for Sketchy.
   """
 
+  merge_dims: int = 1024
   second_order_type: SecondOrderType = SecondOrderType.SHAMPOO
   shampoo_options: Optional[shampoo.Options] = shampoo.Options()
-  merge_dims: int = 1024
-  # As further SecondOrderTypes are added, add other praxis_shim.
+  sketchy_options: Optional[sketchy.Options] = None
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -75,6 +77,8 @@ def _reshaper_options(options: Options) -> reshaper.Options:
     assert options.shampoo_options
     block_size = options.shampoo_options.block_size
     return reshaper.Options(options.merge_dims, block_size)
+  if options.second_order_type == SecondOrderType.SKETCHY:
+    return reshaper.Options(options.merge_dims, 0)
   else:
     raise ValueError(
         'unknown second order type {}'.format(options.second_order_type)
@@ -87,6 +91,9 @@ def _update_stats_and_precondition(
   if options.second_order_type == SecondOrderType.SHAMPOO:
     assert options.shampoo_options
     return shampoo.apply(options.shampoo_options)
+  if options.second_order_type == SecondOrderType.SKETCHY:
+    assert options.sketchy_options
+    return sketchy.apply(options.sketchy_options)
   else:
     raise ValueError(
         'unknown second order type {}'.format(options.second_order_type)

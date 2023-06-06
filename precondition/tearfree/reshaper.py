@@ -57,12 +57,15 @@ def _derive_shapes(options: Options, param: jax.Array) -> _Shapes:
         merged_shape=[],
         padded_shape=[],
     )
-  padded = []
-  for s in merged:
-    if s >= options.block_size:
-      s = (s + options.block_size - 1) // options.block_size
-      s *= options.block_size
-    padded.append(s)
+  if options.block_size == 0:
+    padded = merged
+  else:
+    padded = []
+    for s in merged:
+      if s >= options.block_size:
+        s = (s + options.block_size - 1) // options.block_size
+        s *= options.block_size
+      padded.append(s)
   return _Shapes(
       original_shape=list(param.shape),
       merged_shape=merged,
@@ -78,9 +81,11 @@ def merge(options: Options) -> optax.GradientTransformation:
         'merge_dims ({}) must be at least 2'.format(options.merge_dims)
     )
 
-  if options.block_size < 2:
+  if options.block_size < 2 and options.block_size != 0:
     raise ValueError(
-        'block_size ({}) must be at least 2'.format(options.block_size)
+        'block_size ({}) must be at least 2 (or 0 to disable)'.format(
+            options.block_size
+        )
     )
 
   def _merge(update: jax.Array, shapes: _Shapes) -> jax.Array:
@@ -89,7 +94,7 @@ def merge(options: Options) -> optax.GradientTransformation:
     padding = [
         (0, p - m) for p, m in zip(shapes.padded_shape, shapes.merged_shape)
     ]
-    if padding:
+    if padding and options.block_size > 0:
       return jnp.pad(merged, padding)
     return merged
 
@@ -110,7 +115,10 @@ def unmerge(options: Options) -> optax.GradientTransformation:
 
   def _unmerge(update: jax.Array, shapes: _Shapes) -> jax.Array:
     assert list(update.shape) == shapes.padded_shape, (update.shape, shapes)
-    merged = update[tuple(slice(0, m) for m in shapes.merged_shape)]
+    if options.block_size == 0:
+      merged = update
+    else:
+      merged = update[tuple(slice(0, m) for m in shapes.merged_shape)]
     return merged.reshape(shapes.original_shape)
 
   def update(

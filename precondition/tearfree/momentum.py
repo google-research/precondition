@@ -72,7 +72,7 @@ class Options:
       after the momentum transformation.
   """
 
-  ema: bool = False  # optax.trace, pre-multiply by (1-decay to get nesterov).
+  ema: bool = False
   nesterov: bool = True
   momentum_decay: float = 0.9
   weight_decay: float = 0.0
