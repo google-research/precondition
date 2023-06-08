@@ -19,7 +19,12 @@ dependencies = [
   "flax",
   "optax",
   "jax",
-  "numpy"
+  "numpy",
+  "joblib",
+  "absl-py",
+  "scipy",
+  "sklearn",
+  "pandas",
 ]
 
 # This is set automatically by flit using `precondition.__version__`

@@ -30,6 +30,29 @@ Sketchy (`distributed_shampoo.py`), logical reference implementation as a branch
   year={2023}
 }
 ```
+In Appendix A of the aforementioned paper, S-Adagrad is tested along with other optimization algorithms (including RFD-SON, Adagrad, OGD, Ada-FD, FD-SON) on three benchmark datasets (`a9a`, `cifar10`, `gisette_scale`). To recreate the result in Appendix A, first download the benchmark datasets (available at https://www.csie.ntu.edu.tw/~cjlin/libsvmtools/datasets/) to your a local folder (e.g. `~/data`). For each `DATASET = {'a9a', 'cifar10', 'gisette'}`, run the following two commands. The first command will run a sweep over all the hyperparameter sets, and the second command will plot a graph of the best set of hyperparameters from the previous run. Consistent with the fair allocation of hyperparameter training budget, we tune delta and the learning rate, each over 7 points uniformly spaced from 1e-6 to 1 in logarithmic scale, for FD-SON and Ada-FD. For the rest of the optimization algorithms, where delta is taken to be 0, we tune the learning rate over 49 points uniformly spaced from 1e-6 to 1 in logarithmic scale. The commands are provided as following:
+
+For running sweep over different sets of hyperparameters, run: (... hides different values of the hyperparameters to sweep over)
+```
+python3 oco/sweep.py --data_dir='~/data' --dataset=DATASET --save_dir='/tmp/results' \
+--lr=1 ... -lr=1e-6 --alg=ADA, --alg=OGD, --alg=S_ADA, --alg=RFD_SON
+```
+and
+```
+python3 oco/sweep.py --data_dir='~/data' --dataset=DATASET --save_dir='/tmp/results' --lr=1 ... --lr=1e-6 \
+--delta=1 --delta=1e-6 --alg=ADA_FD, --alg=FD_SON
+```
+After running the above commands, the results will be saved in the folders named with the time stamps at execution (e.g. '/tmp/results/YYYY-MM-DD' and '/tmp/results/yyyy-mm-dd').
+
+To plot the best set of hyperparameters from the previous run, run:
+```
+python3 oco/sweep.py --data_dir='~/data' --dataset=DATASET --save_dir='/tmp/results' \
+--use_best_from='/tmp/results/YYYY-MM-DD' --use_best_from='/tmp/results/yyyy-mm-dd'
+```
+For detailed documentations on the supported flags, run:
+```
+python3 oco/sweep.py --help
+```
 
 SM3 (`sm3.py`).
 ```
