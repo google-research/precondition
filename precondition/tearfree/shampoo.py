@@ -257,7 +257,7 @@ def _pspec(
         init=None,
         dtype=jnp.float32,
         collections=None,
-        tensor_split_dims_mapping=[],
+        tensor_split_dims_mapping=[-1, -1, -1],
     )
     stats = [replicated((num_blocks, d, d)) for d in dims]
     precond = stats

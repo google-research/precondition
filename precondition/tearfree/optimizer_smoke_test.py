@@ -34,6 +34,7 @@ from precondition.tearfree import momentum
 from precondition.tearfree import optimizer
 from precondition.tearfree import second_order
 from precondition.tearfree import shampoo
+from precondition.tearfree import sketchy
 
 
 def _make_distributed_equality_cases() -> list[dict[str, ...]]:
@@ -80,6 +81,21 @@ def _make_distributed_equality_cases() -> list[dict[str, ...]]:
   case = copy.deepcopy(basic_case)
   case['lr'] = lambda x: 0.1 / (x + 1)
   case['testcase_name'] = 'schedule'
+  cases.append(case)
+
+  case = copy.deepcopy(basic_case)
+  second_order_options = case['options'].second_order_options
+  second_order_options.second_order_type = second_order.SecondOrderType.SKETCHY
+  second_order_options.shampoo_options = None
+  second_order_options.sketchy_options = sketchy.Options()
+  case['testcase_name'] = 'sketchy'
+  cases.append(case)
+
+  case = copy.deepcopy(case)
+  case['testcase_name'] += '_notrunc_lowrank'
+  sketchy_options = case['options'].second_order_options.sketchy_options
+  sketchy_options.truncate_numerical_noise = False
+  sketchy_options.rank = 2
   cases.append(case)
 
   # Need to test we at least parallelize the identical-to-tensor shapes

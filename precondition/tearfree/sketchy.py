@@ -35,10 +35,15 @@ class Options:
     update_freq: Number of steps between covariance updates.
     second_moment_decay: Exponential moving average for second-order statistics
       tracking. If 1.0 then sums.
+    rank: The sketch size to use for FD sketch for each tensor's dimension.
+    truncate_numerical_noise: Round all singular values less than `1e-6 *
+      max_singular_value` down to 0.0 after `svd`.
   """
 
   update_freq: int = 1
   second_moment_decay: float = 0.999
+  rank: int = 128
+  truncate_numerical_noise: bool = True
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -57,9 +62,16 @@ class _AxisState(NamedTuple):
   """Contains the covariance sketch state for each tensor dimension."""
 
   eigvecs: jax.Array
+  # These refer to the eigenvalues of the running *square root* of of the
+  # covariance.
   eigvals: jax.Array
+  # Analogously, but the -(1/(2*ndim)) root of the covariance, where ndim
+  # is total tensor rank.
   inv_eigvals: jax.Array
+  # The tail, however, tracks the cumulative escaped mass, which is the sum
+  # of eigenvalues of the full gradient covariance which were subtracted out.
   tail: jax.Array
+  # Analogously to inv_eigvals, the -(1/(2*ndim))-th root.
   inv_tail: jax.Array
 
 
@@ -90,18 +102,34 @@ def _validate(options: Options) -> None:
         "should be in [0, 1]"
     )
 
+  if options.rank <= 0:
+    raise ValueError(f"rank ({options.rank}) must be at least 1")
+
 
 def _init(options: Options, params: optax.Params) -> _SketchyState:
-  """Inititialize stats to 0 and preconditioners to identity."""
-  del options
-
+  """Inititialize sketch."""
   def _tensor_state(path: ..., param: jax.Array) -> _TensorState:
-    if any(dim == 1 for dim in param.shape):
-      raise ValueError(
-          "param {} shape ({}) has unit dimensions".format(path, param.shape)
+    axes = []
+
+    for d in param.shape:
+      if d == 1:
+        raise ValueError(
+            "param {} shape ({}) has unit dimensions".format(path, param.shape)
+        )
+
+      k = min(d, options.rank)
+
+      axes.append(
+          _AxisState(
+              eigvecs=jnp.zeros((d, k)),
+              eigvals=jnp.zeros((k,)),
+              inv_eigvals=jnp.zeros((k,)),
+              tail=jnp.zeros(tuple()),
+              inv_tail=jnp.zeros(tuple()),
+          )
       )
 
-    return _TensorState([])
+    return _TensorState(axes)
 
   return _SketchyState(
       count=jnp.zeros([], jnp.int32),
@@ -113,7 +141,6 @@ def _pspec(
     options: Options, params: praxis_shim.NestedHParams
 ) -> praxis_shim.NestedHParams:
   """Generate sharding specification for sketchy state."""
-  del options
 
   count_pspec = praxis_shim.WeightHParams(
       shape=[],
@@ -124,15 +151,33 @@ def _pspec(
   )
 
   def _tensor_pspec(
-      path: ...,
       param: praxis_shim.WeightHParams,
   ) -> praxis_shim.NestedHParams:
-    del path, param
-    return dict(axes=[])
+
+    def _replicated(shape):
+      return praxis_shim.WeightHParams(
+          shape=list(shape),
+          init=None,
+          dtype=jnp.float32,
+          collections=None,
+          tensor_split_dims_mapping=[-1] * len(shape),
+      )
+
+    def _make_axis_state(d: int):
+      k = min(d, options.rank)
+      return dict(
+          eigvecs=_replicated((d, k)),
+          eigvals=_replicated((k,)),
+          inv_eigvals=_replicated((k,)),
+          tail=_replicated(tuple()),
+          inv_tail=_replicated(tuple()),
+      )
+
+    return dict(axes=[_make_axis_state(d) for d in param.shape])
 
   return dict(
       count=count_pspec,
-      sketches=jax.tree_util.tree_map_with_path(
+      sketches=jax.tree_util.tree_map(
           _tensor_pspec, params, is_leaf=lambda x: hasattr(x, "shape")
       ),
   )
@@ -157,14 +202,18 @@ def _update(
       is_leaf=is_tensor_state,
   )
   should_update_stats = (state.count % options.update_freq) == 0
-  state.sketches = jax.lax.cond(
+  new_sketches = jax.lax.cond(
       should_update_stats, updated_sketches, lambda: sketches
   )
-  state.count += 1
   new_updates = jax.tree_map(
-      _precondition, updates, state.sketches, is_leaf=is_tensor_state
+      functools.partial(_precondition, options),
+      updates,
+      new_sketches,
+      is_leaf=is_tensor_state,
   )
-  return new_updates, state
+  return new_updates, _SketchyState(
+      count=state.count + 1, sketches=new_sketches
+  )
 
 
 def _update_sketches(
@@ -173,38 +222,85 @@ def _update_sketches(
     sketches: _TensorState,
 ) -> _TensorState:
   """Update sketched covariance statistics given a gradient."""
-
-  del update, options
-
-  def _update_axis(dim: int, axis_state: _AxisState) -> _AxisState:
-    raise NotImplementedError
-
   new_axes = []
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("UpdateSketchDim{}".format(dim)):
-      new_axes.append(_update_axis(dim, axis_state))
-
+      new_axes.append(_update_axis(options, dim, update, axis_state))
   return _TensorState(new_axes)
 
 
-def _precondition(update: jax.Array, sketches: _TensorState) -> jax.Array:
+def _precondition(
+    options: Options, update: jax.Array, sketches: _TensorState
+) -> jax.Array:
   """Precondition gradients."""
-
-  def _precondition_axis(
-      dim: int, axis_state: _AxisState, g: jax.Array
-  ) -> jax.Array:
-    raise NotImplementedError
-
   g = update
-
+  original_shape = g.shape
+  roll = tuple(range(1, g.ndim)) + (0,)
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("SketchPreconditionDim{}".format(dim)):
-      g = _precondition_axis(dim, axis_state, g)
-
+      # Rotate g during this loop; keep the axis to precondition first.
+      d = original_shape[dim]
+      k = min(d, options.rank)
+      assert g.shape[0] == d
+      eigvecs = axis_state.eigvecs
+      assert list(eigvecs.shape) == [d, k]
+      lowrank_basis = jnp.tensordot(g, eigvecs, axes=[[0], [0]])
+      lowrank_component = jnp.tensordot(
+          lowrank_basis, eigvecs, axes=[[g.ndim - 1], [1]]
+      )
+      g = jnp.transpose(g, axes=roll)
+      complement = g - lowrank_component
+      scaled_basis = lowrank_basis * axis_state.inv_eigvals
+      scaled_lowrank_component = jnp.tensordot(
+          scaled_basis, eigvecs, axes=[[g.ndim - 1], [1]]
+      )
+      g = axis_state.inv_tail * complement + scaled_lowrank_component
   return g
 
 
-def _ema_update(old: jax.Array, new: jax.Array, decay: float) -> jax.Array:
-  if decay == 1.0:
-    return old + new
-  return old * decay + new * (1 - decay)
+def _update_axis(
+    options: Options, dim: int, update: jax.Array, axis_state: _AxisState
+) -> _AxisState:
+  """Perform an FD update for statistics."""
+  # _low_rank_root
+  d = update.shape[dim]
+  k = min(d, options.rank)
+
+  sketch_dk = axis_state.eigvecs
+  assert sketch_dk.shape == (d, k), (sketch_dk.shape, d, k, update.shape, dim)
+
+  sketch_dk *= axis_state.eigvals[jnp.newaxis, :]
+  all_but_dim = [i for i in range(update.ndim) if i != dim]
+  g_dm = update.transpose([dim] + all_but_dim).reshape(d, -1)
+  decay = jnp.sqrt(options.second_moment_decay)
+
+  # This implementation uses only O(|gradient size|) memory because
+  # full_matrices is False, but may be slow. Consider LOBPCG instead.
+  updated = jnp.concatenate([sketch_dk * decay, g_dm], axis=1)
+  u, s, vt = jnp.linalg.svd(updated, full_matrices=False)
+  del vt
+  assert u.shape[0] == d
+  assert u.shape[1] >= k
+
+  if options.truncate_numerical_noise:
+    eps = 1e-6
+    mask = s > eps * jnp.max(s)
+    s *= mask
+
+  cutoff = jnp.maximum(s[k], 0.0) if k < len(s) else 0.0
+  top_eigs = s[:k]
+  deflated = jnp.sqrt(jnp.maximum(0.0, top_eigs - cutoff)) * jnp.sqrt(
+      top_eigs + cutoff
+  )
+  tail = axis_state.tail * decay + cutoff**2
+  eigvecs = u[:, :k]
+  mask = deflated > 0
+
+  alpha = jnp.asarray(-1.0 / (2 * update.ndim), dtype=jnp.float32)
+  eigvecs *= mask
+  # Note that deflated already contains the square root.
+  inv_eigvals = jnp.where(mask, (deflated**2 + tail) ** alpha, 0)
+  eigvals = deflated * mask
+  inv_tail = jnp.where(tail > 0, tail**alpha, 0.0)
+
+  return _AxisState(eigvecs, eigvals, inv_eigvals, tail, inv_tail)
