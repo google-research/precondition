@@ -70,8 +70,8 @@ class Options:
     multiply_by_parameter_scale: (Applies to ADA-Factor Only.) If True, then
       scale learning_rate by parameter norm. If False, provided learning_rate is
       absolute step size.
-    clipping_threshold: (Applies to ADA-Factor Only.) Optional lipping
-      threshold. Must be >= 1. If None, clipping is disabled.
+    clipping_threshold: (Applies to ADA-Factor Only.) Clipping
+      threshold. Must be >= 1.
   """
 
   grafting_type: GraftingType = GraftingType.RMSPROP
