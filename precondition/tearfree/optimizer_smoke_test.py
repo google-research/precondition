@@ -69,6 +69,7 @@ def _make_distributed_equality_cases() -> list[dict[str, ...]]:
           weight_decay_after_momentum=True,
       ),
   )
+
   basic_case = {
       'testcase_name': 'basic',
       'nsteps': 3,
@@ -96,6 +97,13 @@ def _make_distributed_equality_cases() -> list[dict[str, ...]]:
   sketchy_options = case['options'].second_order_options.sketchy_options
   sketchy_options.truncate_numerical_noise = False
   sketchy_options.rank = 2
+  cases.append(case)
+
+  case = copy.deepcopy(basic_case)
+  case['options'].grafting_options.grafting_type = (
+      grafting.GraftingType.ADAFACTOR
+  )
+  case['testcase_name'] = 'adafactor'
   cases.append(case)
 
   # Need to test we at least parallelize the identical-to-tensor shapes

@@ -65,6 +65,62 @@ def _make_invalid_cases() -> Sequence[dict[str, ...]]:
               start_preconditioning_step=0,
           ),
       },
+      {
+          'testcase_name': 'adafactor_0',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              second_moment_decay=-1.0,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_neg',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              second_moment_decay=-1.0,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_not_less_than_1',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              second_moment_decay=1.0,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_eps_neg',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              epsilon=-1.0,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_min_size_0',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              min_dim_size_to_factor=0,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_min_size_neg',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              min_dim_size_to_factor=-1,
+              start_preconditioning_step=0,
+          ),
+      },
+      {
+          'testcase_name': 'adafactor_clip_less_than_1',
+          'invalid_options': grafting.Options(
+              grafting.GraftingType.ADAFACTOR,
+              clipping_threshold=0.5,
+              start_preconditioning_step=0,
+          ),
+      },
   ]
 
 
@@ -143,18 +199,23 @@ class GraftingTest(parameterized.TestCase):
       return grafting._sgd()
     if options.grafting_type == grafting.GraftingType.RMSPROP:
       return grafting._rmsprop(options)
+    if options.grafting_type == grafting.GraftingType.ADAFACTOR:
+      return grafting._adafactor(options)
     raise ValueError('unsupported grafting type ' + str(options.grafting_type))
 
   @parameterized.parameters(
-      itertools.product([0, 1, 2], ['sgd', 'rmsprop'], [(3,), (3, 2)])
+      itertools.product(
+          [0, 1, 2], ['sgd', 'rmsprop', 'adafactor'], [(3,), (3, 2)]
+      )
   )
   def test_norm_direction(self, step, graft, shape):
     """Validate initial graft update, then switch to its norm."""
     options = grafting.Options(
         grafting.GraftingType(graft),
-        0.9 if graft == 'rmsprop' else 0.0,
+        0.9 if (graft == 'rmsprop' or graft == 'adafactor') else 0.0,
         start_preconditioning_step=step,
         skip_preconditioning_rank1=len(shape) > 1,
+        min_dim_size_to_factor=1
     )
     grafted = grafting.graft(options, _minustwo())
     nsteps = 4

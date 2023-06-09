@@ -35,6 +35,7 @@ class GraftingType(enum.Enum):
   NONE = 'none'
   SGD = 'sgd'
   RMSPROP = 'rmsprop'
+  ADAFACTOR = 'adafactor'
 
 
 @dataclasses.dataclass
@@ -51,18 +52,26 @@ class Options:
 
   Attributes:
     grafting_type: Which optimizer to use for grafting updates.
-    second_moment_decay: Second moment accumulator decay, becomes sum if set to
-      1 (i.e., Adagrad), should be in [0, 1]. Must be 0 if unused (e.g., for
-      SGD/NONE).
+    second_moment_decay: Second moment accumulator decay. For ADA-Factor, this
+    value must be bounded between (0, 1). For RMSProp, the second moment
+    accumulator becomes sum if set to 1 (i.e., Adagrad), should be in (0, 1].
+    Must be 0 if unused (e.g., for SGD/NONE).
     start_preconditioning_step: When to start applying preconditioning.
-    epsilon: Avoids divide by zero in RMSProp by adding this term to the
-      expression `(epsilon + acc)^(-1/2)` when taking the inverse square root of
-      the accumulator; should be non-negative.
+    epsilon: Avoids divide by zero in RMSProp and ADA-Factor by adding this term
+      to the expression `(epsilon + acc)^(-1/2)` when taking the inverse square
+      root of the accumulator; should be non-negative.
     skip_preconditioning_any_dim_gt: Skip second-order preconditioning if any
       dimension of a tensor is greater than this value (only apply grafting
       update). Argument ignored if NONE grafting.
     skip_preconditioning_rank1: Skip preconditioning the tensor if the rank is 1
       or less. Argument ignored if NONE grafting.
+    min_dim_size_to_factor: (Applies to ADA-Factor Only.) Only factor the
+      statistics if two array dimensions have at least this size.
+    multiply_by_parameter_scale: (Applies to ADA-Factor Only.) If True, then
+      scale learning_rate by parameter norm. If False, provided learning_rate is
+      absolute step size.
+    clipping_threshold: (Applies to ADA-Factor Only.) Optional lipping
+      threshold. Must be >= 1. If None, clipping is disabled.
   """
 
   grafting_type: GraftingType = GraftingType.RMSPROP
@@ -71,6 +80,9 @@ class Options:
   epsilon: float = 1e-23
   skip_preconditioning_any_dim_gt: int = 4096
   skip_preconditioning_rank1: bool = True
+  min_dim_size_to_factor: int = 128
+  multiply_by_parameter_scale: float = True
+  clipping_threshold: float = 1.0
 
 
 def graft(
@@ -103,6 +115,13 @@ def graft(
         _rmsprop(options),
         options,
     )
+
+  if options.grafting_type == GraftingType.ADAFACTOR:
+    return _graft_with(
+        direction,
+        _adafactor(options),
+        options,
+    )
   # check options for validity (SGD/none and no 2nd moment, appropriate range)
   # test to check sharded gradient transform is otherwise identical to
   #   praxis'
@@ -111,6 +130,11 @@ def graft(
 
 def _validate(options: Options):
   """Raise ValueError if the options have an invalid specification."""
+  if options.grafting_type in [GraftingType.RMSPROP, GraftingType.ADAFACTOR]:
+    if options.epsilon < 0:
+      raise ValueError(
+          'epsilon ({}) should be non-negative'.format(options.epsilon)
+      )
   if options.grafting_type == GraftingType.RMSPROP:
     if not (0 < options.second_moment_decay <= 1.0):
       raise ValueError(
@@ -118,18 +142,51 @@ def _validate(options: Options):
               options.second_moment_decay, options.grafting_type
           )
       )
-    if options.epsilon < 0:
+  if options.grafting_type == GraftingType.ADAFACTOR:
+    if not (0 < options.second_moment_decay < 1.0):
       raise ValueError(
-          'epsilon ({}) should be non-negative'.format(options.epsilon)
+          'second_moment_decay ({}) not in (0, 1) for graft ({})'.format(
+              options.second_moment_decay, options.grafting_type
+          )
+      )
+    if not (0 < options.min_dim_size_to_factor):
+      raise ValueError(
+          'min_dim_size_to_factor ({}) should be positive for graft ({})'
+          .format(options.min_dim_size_to_factor, options.grafting_type)
+      )
+    if (options.clipping_threshold < 1):
+      raise ValueError(
+          'clipping_threshold ({}) should be >= 1 for graft ({})'
+          .format(options.clipping_threshold, options.grafting_type)
       )
 
 
 def _sgd() -> praxis_shim.ShardedGradientTransformation:
+  """Create SGD sharded gradient transform."""
   grad_transform = optax.identity()
   return praxis_shim.ShardedGradientTransformation(
       grad_transform.init,
       grad_transform.update,
       optax.EmptyState,
+  )
+
+
+def _adafactor(options: Options) -> praxis_shim.ShardedGradientTransformation:
+  """Create AdaFactor sharded gradient transform."""
+  grad_transform = optax.adafactor(
+      min_dim_size_to_factor=options.min_dim_size_to_factor,
+      decay_rate=options.second_moment_decay,
+      multiply_by_parameter_scale=options.multiply_by_parameter_scale,
+      eps=options.epsilon, clipping_threshold=options.clipping_threshold)
+
+  def _adafactor_pspec_fn(params_unused):
+    del params_unused
+    raise NotImplementedError
+
+  return praxis_shim.ShardedGradientTransformation(
+      grad_transform.init,
+      grad_transform.update,
+      _adafactor_pspec_fn,
   )
 
 
