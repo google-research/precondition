@@ -49,7 +49,6 @@ def _make_invalid_cases() -> Sequence[dict[str, ...]]:
       },
   ]
 
-
 class SketchyTest(parameterized.TestCase):
   """Basic test for shampoo implementation."""
 
@@ -95,9 +94,9 @@ class SketchyTest(parameterized.TestCase):
     state._replace(inv_eigvals=ie)
     return state
 
-  def _no_decay_options(self, sketch_size):
+  def _no_decay_options(self, sketch_size, epsilon=0.0):
     return sketchy.Options(
-        rank=sketch_size, second_moment_decay=1, truncate_numerical_noise=False
+        rank=sketch_size, second_moment_decay=1, epsilon=epsilon
     )
 
   @parameterized.parameters(range(1, 5))
@@ -114,6 +113,26 @@ class SketchyTest(parameterized.TestCase):
     grad = np.zeros([size] * ndim, np.float32)
     ret = sketchy._update_axis(self._no_decay_options(1), 0, grad, prev)
     self.assertAlmostEqual(ret.inv_eigvals, 1 / 2, delta=1e-6)
+
+  def test_epsilon(self):
+    """Test that epsilon is properly calculated."""
+    size = 4
+    ndim = 2
+    prev = self._make_eye_state(size, [0], 4, ndim)
+    grad = np.zeros([size] * ndim, np.float32)
+    grad[(0,) * ndim] = 2
+    options = self._no_decay_options(1, epsilon=1e-3)
+    ret = sketchy._update_axis(options, 0, grad, prev)
+    self.assertAlmostEqual(
+        ret.inv_eigvals[0], ((4 + 4) * 1.001) ** (-1 / 4), delta=1e-3, msg=ret
+    )
+    self.assertAlmostEqual(ret.inv_tail, (4 * 1.001) ** (-1 / 4), delta=1e-3)
+    options.relative_epsilon = False
+    ret = sketchy._update_axis(options, 0, grad, prev)
+    self.assertAlmostEqual(
+        ret.inv_eigvals[0], (4 + 4 + 0.001) ** (-1 / 4), delta=1e-6
+    )
+    self.assertAlmostEqual(ret.inv_tail, (4 + 0.001) ** (-1 / 4), delta=1e-3)
 
   def _make_rand_state(self, size, eigs, tail, ndim):
     rng = np.random.default_rng(1234)
@@ -171,7 +190,7 @@ class SketchyTest(parameterized.TestCase):
     options = sketchy.Options(
         second_moment_decay=decay,
         rank=k,
-        truncate_numerical_noise=False,
+        epsilon=0.0,
     )
     dim = ndim - 1 if last_axis else 0
     updated = sketchy._update_axis(options, dim, grad, prev)
@@ -188,7 +207,7 @@ class SketchyTest(parameterized.TestCase):
     e = updated.eigvals**2 + updated.tail
     mask = updated.eigvals > 0
     expected_ie = mask * np.where(mask, e, 1.0) ** (-1 / (2 * ndim))
-    self.assertSequenceAlmostEqual(expected_ie, ie, delta=1e-6)
+    self.assertSequenceAlmostEqual(expected_ie, ie, delta=1e-5)
 
     def _make_cov(sketch: sketchy._AxisState, add_tail=True):
       # Note eigvals refer to the *root* singular values, so squaring as
@@ -231,7 +250,7 @@ class SketchyTest(parameterized.TestCase):
     return out_grads
 
   def test_reduction_to_shampoo(self):
-    tx = sketchy.apply(sketchy.Options(second_moment_decay=0.99))
+    tx = sketchy.apply(sketchy.Options(second_moment_decay=0.99, epsilon=0.0))
     shampoo_tx = shampoo.apply(shampoo.Options(second_moment_decay=0.99))
     # Choose a shape well below sketchy rank & shampoo block size.
     shape = (4, 5)
@@ -240,7 +259,7 @@ class SketchyTest(parameterized.TestCase):
     # Shampoo 2nd moment is computed as (1 - decay) * update + decay * update
     # so we must adjust the preconditioned grad by a factor sqrt(1/(1-decay)).
     shampoo_run = self._unroll(shampoo_tx, nsteps, shape) / 10
-    np.testing.assert_allclose(shampoo_run, sketchy_run, rtol=1e-4)
+    np.testing.assert_allclose(shampoo_run, sketchy_run, rtol=2e-3)
 
 
 if __name__ == '__main__':

@@ -32,18 +32,21 @@ class Options:
   See https://arxiv.org/abs/2302.03764.
 
   Attributes:
-    update_freq: Number of steps between covariance updates.
+    epsilon: The diagonal positive perturbation added to preconditioner before
+      inversion.
+    rank: The sketch size to use for FD sketch for each tensor's dimension.
+    relative_epsilon: Whether to scale epsilon by the top singular value of the
+      covariance or not.
     second_moment_decay: Exponential moving average for second-order statistics
       tracking. If 1.0 then sums.
-    rank: The sketch size to use for FD sketch for each tensor's dimension.
-    truncate_numerical_noise: Round all singular values less than `1e-6 *
-      max_singular_value` down to 0.0 after `svd`.
+    update_freq: Number of steps between covariance updates.
   """
 
-  update_freq: int = 1
-  second_moment_decay: float = 0.999
+  epsilon: float = 1e-7
   rank: int = 128
-  truncate_numerical_noise: bool = True
+  relative_epsilon: bool = True
+  second_moment_decay: float = 0.999
+  update_freq: int = 1
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -277,30 +280,48 @@ def _update_axis(
   # This implementation uses only O(|gradient size|) memory because
   # full_matrices is False, but may be slow. Consider LOBPCG instead.
   updated = jnp.concatenate([sketch_dk * decay, g_dm], axis=1)
-  u, s, vt = jnp.linalg.svd(updated, full_matrices=False)
-  del vt
+  # This dimensionality reduction with QR is a mathematical no-op but required
+  # to avoid b/286607548.
+  updated = jnp.linalg.qr(updated.T, mode="r").T
+
+  def _safe_svd(x):
+    # Wrap with a nan check due to hangs per b/286654608.
+    svd = lambda y: jnp.linalg.svd(y, full_matrices=False)[:2]
+
+    def _all_nan(y):
+      m = min(y.shape)
+      u = jnp.full((d, m), jnp.nan, jnp.float32)
+      s = jnp.full((m,), jnp.nan, jnp.float32)
+      return u, s
+
+    return jax.lax.cond(jnp.isfinite(x).all(), svd, _all_nan, x)
+
+  u, s = _safe_svd(updated)
   assert u.shape[0] == d
   assert u.shape[1] >= k
 
-  if options.truncate_numerical_noise:
-    eps = 1e-6
-    mask = s > eps * jnp.max(s)
-    s *= mask
-
   cutoff = jnp.maximum(s[k], 0.0) if k < len(s) else 0.0
-  top_eigs = s[:k]
+  top_eigs = jnp.maximum(s[:k], 0.0)
   deflated = jnp.sqrt(jnp.maximum(0.0, top_eigs - cutoff)) * jnp.sqrt(
       top_eigs + cutoff
   )
   tail = axis_state.tail * decay + cutoff**2
+  # Avoid numerical error from the sqrt computation and from subtracting
+  # and re-adding cutoff^2 (mathematically, undeflated == deflated^2 + tail).
+  undeflated = jnp.square(jnp.maximum(top_eigs, 0.0)) + axis_state.tail * decay
   eigvecs = u[:, :k]
+
   mask = deflated > 0
+  # Would be nice to statically assert deflated == 0 implies undeflated == 0.
 
   alpha = jnp.asarray(-1.0 / (2 * update.ndim), dtype=jnp.float32)
   eigvecs *= mask
-  # Note that deflated already contains the square root.
-  inv_eigvals = jnp.where(mask, (deflated**2 + tail) ** alpha, 0)
+  if options.relative_epsilon and options.epsilon > 0:
+    eps = jnp.max(undeflated) * options.epsilon
+  else:
+    eps = options.epsilon
+  inv_eigvals = jnp.where(mask, (undeflated + eps) ** alpha, 0)
   eigvals = deflated * mask
-  inv_tail = jnp.where(tail > 0, tail**alpha, 0.0)
+  inv_tail = jnp.where(tail > 0, (tail + eps) ** alpha, 0.0)
 
   return _AxisState(eigvecs, eigvals, inv_eigvals, tail, inv_tail)
