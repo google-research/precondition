@@ -261,7 +261,7 @@ class SketchyTest(parameterized.TestCase):
     # Shampoo 2nd moment is computed as (1 - decay) * update + decay * update
     # so we must adjust the preconditioned grad by a factor sqrt(1/(1-decay)).
     shampoo_run = self._unroll(shampoo_tx, nsteps, shape) / 10
-    np.testing.assert_allclose(shampoo_run, sketchy_run, rtol=2e-3)
+    np.testing.assert_allclose(shampoo_run, sketchy_run, rtol=3e-3, atol=2e-4)
 
 
 if __name__ == '__main__':

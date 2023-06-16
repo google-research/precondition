@@ -173,11 +173,14 @@ def _sgd() -> praxis_shim.ShardedGradientTransformation:
 
 def _adafactor(options: Options) -> praxis_shim.ShardedGradientTransformation:
   """Create AdaFactor sharded gradient transform."""
-  grad_transform = optax.adafactor(
+  tx = [optax.adafactor(
       min_dim_size_to_factor=options.min_dim_size_to_factor,
       decay_rate=options.second_moment_decay,
       multiply_by_parameter_scale=options.multiply_by_parameter_scale,
-      eps=options.epsilon, clipping_threshold=options.clipping_threshold)
+      eps=options.epsilon, clipping_threshold=options.clipping_threshold)]
+  # Sign flip: optax.adafactor uses descent direction in updates.
+  tx.append(optax.scale(-1))
+  grad_transform = optax.chain(*tx)
 
   def _adafactor_pspec_fn(params_unused):
     del params_unused

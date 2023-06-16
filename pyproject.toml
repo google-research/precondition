@@ -23,7 +23,7 @@ dependencies = [
   "joblib",
   "absl-py",
   "scipy",
-  "sklearn",
+  "scikit-learn",
   "pandas",
 ]
 
