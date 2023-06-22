@@ -16,7 +16,7 @@
 
 import dataclasses
 import functools
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, Union
 
 import chex
 import jax
@@ -40,6 +40,8 @@ class Options:
     second_moment_decay: Exponential moving average for second-order statistics
       tracking. If 1.0 then sums.
     update_freq: Number of steps between covariance updates.
+    add_ggt: whether to store the exponentially moving GGT in the states. Set
+    to TRUE to save the exponentially moving GGT.
   """
 
   epsilon: float = 1e-7
@@ -47,6 +49,7 @@ class Options:
   relative_epsilon: bool = True
   second_moment_decay: float = 0.999
   update_freq: int = 1
+  add_ggt: bool = False
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -76,6 +79,8 @@ class _AxisState(NamedTuple):
   tail: jax.Array
   # Analogously to inv_eigvals, the -(1/(2*ndim))-th root.
   inv_tail: jax.Array
+  # Add additional optional state to store ema GGT
+  ema_ggt: Union[optax.MaskedNode, jax.Array]
 
 
 class _TensorState(NamedTuple):
@@ -111,9 +116,10 @@ def _validate(options: Options) -> None:
 
 def _init(options: Options, params: optax.Params) -> _SketchyState:
   """Inititialize sketch."""
+
   def _tensor_state(path: ..., param: jax.Array) -> _TensorState:
     axes = []
-
+    add_ggt = options.add_ggt
     for d in param.shape:
       if d == 1:
         raise ValueError(
@@ -129,6 +135,7 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
               inv_eigvals=jnp.zeros((k,)),
               tail=jnp.zeros(tuple()),
               inv_tail=jnp.zeros(tuple()),
+              ema_ggt=jnp.zeros((d, d)) if add_ggt else optax.MaskedNode(),
           )
       )
 
@@ -168,12 +175,14 @@ def _pspec(
 
     def _make_axis_state(d: int):
       k = min(d, options.rank)
+      add_ggt = options.add_ggt
       return dict(
           eigvecs=_replicated((d, k)),
           eigvals=_replicated((k,)),
           inv_eigvals=_replicated((k,)),
           tail=_replicated(tuple()),
           inv_tail=_replicated(tuple()),
+          ema_ggt=_replicated((d, d)) if add_ggt else optax.MaskedNode(),
       )
 
     return dict(axes=[_make_axis_state(d) for d in param.shape])
@@ -262,7 +271,7 @@ def _precondition(
 
 
 def _update_axis(
-    options: Options, dim: int, update: jax.Array, axis_state: _AxisState
+    options: Options, dim: int, update: jax.Array, axis_state: _AxisState,
 ) -> _AxisState:
   """Perform an FD update for statistics."""
   # _low_rank_root
@@ -323,5 +332,9 @@ def _update_axis(
   inv_eigvals = jnp.where(mask, (undeflated + eps) ** alpha, 0)
   eigvals = deflated * mask
   inv_tail = jnp.where(tail > 0, (tail + eps) ** alpha, 0.0)
+  if options.add_ggt:
+    ema_ggt = axis_state.ema_ggt * decay + g_dm.dot(g_dm.T) * (1 - decay)
+  else:
+    ema_ggt = axis_state.ema_ggt
 
-  return _AxisState(eigvecs, eigvals, inv_eigvals, tail, inv_tail)
+  return _AxisState(eigvecs, eigvals, inv_eigvals, tail, inv_tail, ema_ggt)
