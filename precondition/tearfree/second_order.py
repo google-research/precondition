@@ -46,7 +46,9 @@ class Options:
 
   merge_dims: int = 1024
   second_order_type: SecondOrderType = SecondOrderType.SHAMPOO
-  shampoo_options: Optional[shampoo.Options] = shampoo.Options()
+  shampoo_options: Optional[shampoo.Options] = dataclasses.field(
+      default_factory=shampoo.Options
+  )
   sketchy_options: Optional[sketchy.Options] = None
 
 
