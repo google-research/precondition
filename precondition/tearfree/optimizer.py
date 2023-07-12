@@ -47,9 +47,15 @@ class TearfreeOptions:
     momentum_options: Momentum options (see `momentum.Options`).
   """
 
-  grafting_options: grafting.Options = grafting.Options()
-  second_order_options: second_order.Options = second_order.Options()
-  momentum_options: momentum.Options = momentum.Options()
+  grafting_options: grafting.Options = dataclasses.field(
+      default_factory=grafting.Options
+  )
+  second_order_options: second_order.Options = dataclasses.field(
+      default_factory=second_order.Options
+  )
+  momentum_options: momentum.Options = dataclasses.field(
+      default_factory=momentum.Options
+  )
 
 
 def tearfree(
