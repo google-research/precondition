@@ -107,12 +107,12 @@ class SketchyTest(parameterized.TestCase):
     prev = self._make_eye_state(size, [0], 0.0, ndim)
     grad = np.zeros([size] * ndim, np.float32)
     grad[(0,) * ndim] = 2**ndim
-    ret = sketchy._update_axis(self._no_decay_options(1), 0, grad, prev)
+    ret = sketchy._update_axis(self._no_decay_options(1), 0, '', grad, prev)
     self.assertAlmostEqual(ret.inv_eigvals, 1 / 2, delta=1e-6)
 
     prev = self._make_eye_state(size, [2**ndim], 0.0, ndim)
     grad = np.zeros([size] * ndim, np.float32)
-    ret = sketchy._update_axis(self._no_decay_options(1), 0, grad, prev)
+    ret = sketchy._update_axis(self._no_decay_options(1), 0, '', grad, prev)
     self.assertAlmostEqual(ret.inv_eigvals, 1 / 2, delta=1e-6)
 
   def test_epsilon(self):
@@ -123,13 +123,13 @@ class SketchyTest(parameterized.TestCase):
     grad = np.zeros([size] * ndim, np.float32)
     grad[(0,) * ndim] = 2
     options = self._no_decay_options(1, epsilon=1e-3)
-    ret = sketchy._update_axis(options, 0, grad, prev)
+    ret = sketchy._update_axis(options, 0, '', grad, prev)
     self.assertAlmostEqual(
         ret.inv_eigvals[0], ((4 + 4) * 1.001) ** (-1 / 4), delta=1e-3, msg=ret
     )
     self.assertAlmostEqual(ret.inv_tail, (4 * 1.001) ** (-1 / 4), delta=1e-3)
     options.relative_epsilon = False
-    ret = sketchy._update_axis(options, 0, grad, prev)
+    ret = sketchy._update_axis(options, 0, '', grad, prev)
     self.assertAlmostEqual(
         ret.inv_eigvals[0], (4 + 4 + 0.001) ** (-1 / 4), delta=1e-6
     )
@@ -143,6 +143,38 @@ class SketchyTest(parameterized.TestCase):
     state = self._make_eye_state(size, eigs, tail, ndim)
     state = state._replace(eigvecs=v[:, : len(eigs)])
     return state
+
+  # pylint: disable=g-long-lambda
+  def test_realloc(self):
+    """Test the memory reallocation functions properly."""
+    dim, nsteps = 8, 3
+    memory_dict = {
+        'a': [2],
+        'b': [[6], [8]],
+        'c': {'d': [4], 'e': [8]},
+    }
+    tx = sketchy.apply(sketchy.Options(memory_alloc=memory_dict))
+    shape = jax.tree_map(
+        lambda x: (dim,),
+        memory_dict,
+        is_leaf=lambda x: isinstance(x, list)
+        and all(not isinstance(y, list) for y in x),
+    )
+    grads_tree, updates = self._unroll(tx, nsteps, shape, None, True)
+    emw_run = jax.tree_map(
+        lambda k, sp, grad: self._unroll(
+            tx=sketchy.apply(sketchy.Options(rank=k[0])),
+            n=nsteps,
+            shape=sp,
+            grads=grad,
+        ),
+        memory_dict,
+        shape,
+        grads_tree,
+        is_leaf=lambda x: isinstance(x, list)
+        and all(not isinstance(y, list) for y in x),
+    )
+    jax.tree_map(np.testing.assert_allclose, updates, emw_run)
 
   # test covariance-adding equality from FD
   # with rand initial state, and with zero
@@ -194,7 +226,7 @@ class SketchyTest(parameterized.TestCase):
         epsilon=0.0,
     )
     dim = ndim - 1 if last_axis else 0
-    updated = sketchy._update_axis(options, dim, grad, prev)
+    updated = sketchy._update_axis(options, dim, '', grad, prev)
 
     if updated.tail > 0:
       self.assertAlmostEqual(
@@ -236,11 +268,22 @@ class SketchyTest(parameterized.TestCase):
     actual_cov = _make_cov(updated, add_tail=False)
     np.testing.assert_allclose(expected_cov, actual_cov, rtol=1e-3)
 
-  def _unroll(self, tx, n, shape):
+  def _unroll(self, tx, n, shape, grads=None, return_grads=False):
     """Generate states and grad updates n times."""
     rng = jax.random.PRNGKey(0)
-    params = jnp.zeros(shape)
-    grads = jax.random.normal(rng, (n, *shape))
+    params = jax.tree_map(
+        jnp.zeros,
+        shape,
+        is_leaf=lambda x: isinstance(x, tuple)
+        and all(isinstance(y, int) for y in x),
+    )
+    if grads is None:
+      grads = jax.tree_map(
+          lambda sp: jax.random.normal(rng, (n, *sp)),
+          shape,
+          is_leaf=lambda x: isinstance(x, tuple)
+          and all(isinstance(y, int) for y in x),
+      )
 
     init = tx.init(params)
 
@@ -249,6 +292,8 @@ class SketchyTest(parameterized.TestCase):
       return new_state, new_grad
 
     _, out_grads = jax.lax.scan(reduce, init, grads)
+    if return_grads:
+      return grads, out_grads
     return out_grads
 
   def test_reduction_to_shampoo(self):

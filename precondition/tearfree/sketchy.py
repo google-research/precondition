@@ -16,8 +16,9 @@
 
 import dataclasses
 import functools
-from typing import NamedTuple, Optional, Union
+from typing import NamedTuple, Optional, Union, Any
 
+from absl import logging
 import chex
 import jax
 from jax import numpy as jnp
@@ -42,6 +43,8 @@ class Options:
     update_freq: Number of steps between covariance updates.
     add_ggt: whether to store the exponentially moving GGT in the states. Set
     to TRUE to save the exponentially moving GGT.
+    memory_alloc: optional dictionary to indicate reallocation of memory used
+    in sketching the covariance matrix.
   """
 
   epsilon: float = 1e-7
@@ -50,6 +53,7 @@ class Options:
   second_moment_decay: float = 0.999
   update_freq: int = 1
   add_ggt: bool = False
+  memory_alloc: Optional[dict[str, Any]] = None
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -114,19 +118,60 @@ def _validate(options: Options) -> None:
     raise ValueError(f"rank ({options.rank}) must be at least 1")
 
 
+def _path_to_key(path: ...) -> str:
+  concat_path = ""
+  for dickey in path:
+    if hasattr(dickey, "key"):
+      concat_path = concat_path + "/" + dickey.key
+    elif hasattr(dickey, "idx"):
+      concat_path = concat_path + "/" + str(dickey.idx)
+    else:
+      raise ValueError("no key or idx found")
+  return concat_path
+
+
+def _locate_path(
+    path: ..., dictionary: dict[str, Any]
+) -> Union[dict[str, Any], list[int]]:
+
+  """Locate a path in a dictionary."""
+
+  carry = dictionary
+  for p in path:
+    if not hasattr(p, "key") and not hasattr(p, "idx"):
+      raise ValueError("no key or idx found")
+    carry = (
+        carry[p.key] if hasattr(p, "key") else carry[p.idx]
+    )
+  assert isinstance(carry, list), type(carry)
+  return carry
+
+
 def _init(options: Options, params: optax.Params) -> _SketchyState:
   """Inititialize sketch."""
 
   def _tensor_state(path: ..., param: jax.Array) -> _TensorState:
     axes = []
+    axes_idx = 0
     add_ggt = options.add_ggt
+    memory_alloc = options.memory_alloc
     for d in param.shape:
       if d == 1:
         raise ValueError(
             "param {} shape ({}) has unit dimensions".format(path, param.shape)
         )
-
-      k = min(d, options.rank)
+      if memory_alloc:
+        k = min(d, _locate_path(path, memory_alloc)[axes_idx])
+        logging.info("custom rank: %d rank allocated to %s",
+                     k, _path_to_key(path))
+      else:
+        logging.warning(
+            "memory_alloc not found for path %s, using global rank %d",
+            _path_to_key(path),
+            options.rank,
+        )
+        k = min(d, options.rank)
+      axes_idx += 1
 
       axes.append(
           _AxisState(
@@ -138,7 +183,6 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
               ema_ggt=jnp.zeros((d, d)) if add_ggt else optax.MaskedNode(),
           )
       )
-
     return _TensorState(axes)
 
   return _SketchyState(
@@ -161,6 +205,7 @@ def _pspec(
   )
 
   def _tensor_pspec(
+      path: ...,
       param: praxis_shim.WeightHParams,
   ) -> praxis_shim.NestedHParams:
 
@@ -173,8 +218,12 @@ def _pspec(
           tensor_split_dims_mapping=[-1] * len(shape),
       )
 
-    def _make_axis_state(d: int):
-      k = min(d, options.rank)
+    def _make_axis_state(d: int, axes_idx: int):
+      memory_alloc = options.memory_alloc
+      if memory_alloc:
+        k = min(d, _locate_path(path, memory_alloc)[axes_idx])
+      else:
+        k = min(d, options.rank)
       add_ggt = options.add_ggt
       return dict(
           eigvecs=_replicated((d, k)),
@@ -185,11 +234,16 @@ def _pspec(
           ema_ggt=_replicated((d, d)) if add_ggt else optax.MaskedNode(),
       )
 
-    return dict(axes=[_make_axis_state(d) for d in param.shape])
+    return dict(
+        axes=[
+            _make_axis_state(d, axes_idx)
+            for d, axes_idx in zip(param.shape, range(len(param.shape)))
+        ]
+    )
 
   return dict(
       count=count_pspec,
-      sketches=jax.tree_util.tree_map(
+      sketches=jax.tree_util.tree_map_with_path(
           _tensor_pspec, params, is_leaf=lambda x: hasattr(x, "shape")
       ),
   )
@@ -207,7 +261,7 @@ def _update(
   is_tensor_state = lambda x: isinstance(x, _TensorState)
 
   updated_sketches = functools.partial(
-      jax.tree_map,
+      jax.tree_util.tree_map_with_path,
       functools.partial(_update_sketches, options),
       updates,
       sketches,
@@ -217,7 +271,7 @@ def _update(
   new_sketches = jax.lax.cond(
       should_update_stats, updated_sketches, lambda: sketches
   )
-  new_updates = jax.tree_map(
+  new_updates = jax.tree_util.tree_map_with_path(
       functools.partial(_precondition, options),
       updates,
       new_sketches,
@@ -230,6 +284,7 @@ def _update(
 
 def _update_sketches(
     options: Options,
+    path: ...,
     update: jax.Array,
     sketches: _TensorState,
 ) -> _TensorState:
@@ -237,23 +292,32 @@ def _update_sketches(
   new_axes = []
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("UpdateSketchDim{}".format(dim)):
-      new_axes.append(_update_axis(options, dim, update, axis_state))
+      new_axes.append(
+          _update_axis(options, dim, path, update, axis_state)
+      )
   return _TensorState(new_axes)
 
 
 def _precondition(
-    options: Options, update: jax.Array, sketches: _TensorState
+    options: Options,
+    path: ...,
+    update: jax.Array,
+    sketches: _TensorState,
 ) -> jax.Array:
   """Precondition gradients."""
   g = update
   original_shape = g.shape
   roll = tuple(range(1, g.ndim)) + (0,)
+  memory_alloc = options.memory_alloc
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("SketchPreconditionDim{}".format(dim)):
       # Rotate g during this loop; keep the axis to precondition first.
       d = original_shape[dim]
-      k = min(d, options.rank)
       assert g.shape[0] == d
+      if memory_alloc:
+        k = min(d, _locate_path(path, memory_alloc)[dim])
+      else:
+        k = min(d, options.rank)
       eigvecs = axis_state.eigvecs
       assert list(eigvecs.shape) == [d, k]
       lowrank_basis = jnp.tensordot(g, eigvecs, axes=[[0], [0]])
@@ -271,12 +335,17 @@ def _precondition(
 
 
 def _update_axis(
-    options: Options, dim: int, update: jax.Array, axis_state: _AxisState,
+    options: Options, dim: int, path: ..., update: jax.Array,
+    axis_state: _AxisState,
 ) -> _AxisState:
   """Perform an FD update for statistics."""
   # _low_rank_root
   d = update.shape[dim]
-  k = min(d, options.rank)
+  memory_alloc = options.memory_alloc
+  if memory_alloc:
+    k = min(d, _locate_path(path, memory_alloc)[dim])
+  else:
+    k = min(d, options.rank)
 
   sketch_dk = axis_state.eigvecs
   assert sketch_dk.shape == (d, k), (sketch_dk.shape, d, k, update.shape, dim)
