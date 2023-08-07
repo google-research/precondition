@@ -45,6 +45,8 @@ class Options:
     to TRUE to save the exponentially moving GGT.
     memory_alloc: optional dictionary to indicate reallocation of memory used
     in sketching the covariance matrix.
+    ekfac_svd: whether to use the ekfac_svd precondtioner instead of Sketchy,
+    default setting to FALSE.
   """
 
   epsilon: float = 1e-7
@@ -54,6 +56,7 @@ class Options:
   update_freq: int = 1
   add_ggt: bool = False
   memory_alloc: Optional[dict[str, Any]] = None
+  ekfac_svd: bool = False
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -85,6 +88,13 @@ class _AxisState(NamedTuple):
   inv_tail: jax.Array
   # Add additional optional state to store ema GGT
   ema_ggt: Union[optax.MaskedNode, jax.Array]
+  # Save svd result to perform ekfac preconditioning
+  svd_result_u: Union[optax.MaskedNode, jax.Array]
+  # Save svd result to perform ekfac preconditioning, this corresponeds to the
+  # inv_eigvals using Sketchy
+  svd_result_s: Union[optax.MaskedNode, jax.Array]
+  # Analogous to inv_tail in the Sketchy case, but up to time t-1
+  inv_prev_tail: Union[optax.MaskedNode, jax.Array]
 
 
 class _TensorState(NamedTuple):
@@ -155,6 +165,8 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
     axes_idx = 0
     add_ggt = options.add_ggt
     memory_alloc = options.memory_alloc
+    ekfac = options.ekfac_svd
+    total_dim_prod = jnp.prod(jnp.array(param.shape))
     for d in param.shape:
       if d == 1:
         raise ValueError(
@@ -171,6 +183,8 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
             options.rank,
         )
         k = min(d, options.rank)
+      others_dim_prod = int(total_dim_prod / d) if d else 0
+      m = min(d, k + others_dim_prod)
       axes_idx += 1
 
       axes.append(
@@ -181,13 +195,15 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
               tail=jnp.zeros(tuple()),
               inv_tail=jnp.zeros(tuple()),
               ema_ggt=jnp.zeros((d, d)) if add_ggt else optax.MaskedNode(),
+              svd_result_u=jnp.zeros((d, m)) if ekfac else optax.MaskedNode(),
+              svd_result_s=jnp.zeros((m,)) if ekfac else optax.MaskedNode(),
+              inv_prev_tail=jnp.zeros(tuple()) if ekfac else optax.MaskedNode(),
           )
       )
     return _TensorState(axes)
-
   return _SketchyState(
       count=jnp.zeros([], jnp.int32),
-      sketches=jax.tree_util.tree_map_with_path(_tensor_state, params),
+      sketches=jax.tree_util.tree_map_with_path(_tensor_state, params)
   )
 
 
@@ -209,6 +225,8 @@ def _pspec(
       param: praxis_shim.WeightHParams,
   ) -> praxis_shim.NestedHParams:
 
+    total_dim_prod = jnp.prod(jnp.array(param.shape))
+
     def _replicated(shape):
       return praxis_shim.WeightHParams(
           shape=list(shape),
@@ -220,11 +238,15 @@ def _pspec(
 
     def _make_axis_state(d: int, axes_idx: int):
       memory_alloc = options.memory_alloc
+      ekfac = options.ekfac_svd
       if memory_alloc:
         k = min(d, _locate_path(path, memory_alloc)[axes_idx])
       else:
         k = min(d, options.rank)
       add_ggt = options.add_ggt
+      others_dim_prod = int(total_dim_prod / d) if d else 0
+      m = min(d, k + others_dim_prod)
+      axes_idx += 1
       return dict(
           eigvecs=_replicated((d, k)),
           eigvals=_replicated((k,)),
@@ -232,6 +254,9 @@ def _pspec(
           tail=_replicated(tuple()),
           inv_tail=_replicated(tuple()),
           ema_ggt=_replicated((d, d)) if add_ggt else optax.MaskedNode(),
+          svd_result_u=_replicated((d, m)) if ekfac else optax.MaskedNode(),
+          svd_result_s=_replicated((m,)) if ekfac else optax.MaskedNode(),
+          inv_prev_tail=_replicated(tuple()) if ekfac else optax.MaskedNode(),
       )
 
     return dict(
@@ -240,7 +265,6 @@ def _pspec(
             for d, axes_idx in zip(param.shape, range(len(param.shape)))
         ]
     )
-
   return dict(
       count=count_pspec,
       sketches=jax.tree_util.tree_map_with_path(
@@ -260,6 +284,7 @@ def _update(
   sketches = state.sketches
   is_tensor_state = lambda x: isinstance(x, _TensorState)
 
+  should_update_stats = (state.count % options.update_freq) == 0
   updated_sketches = functools.partial(
       jax.tree_util.tree_map_with_path,
       functools.partial(_update_sketches, options),
@@ -267,10 +292,27 @@ def _update(
       sketches,
       is_leaf=is_tensor_state,
   )
-  should_update_stats = (state.count % options.update_freq) == 0
-  new_sketches = jax.lax.cond(
-      should_update_stats, updated_sketches, lambda: sketches
-  )
+
+  if not options.ekfac_svd:
+    new_sketches = jax.lax.cond(
+        should_update_stats, updated_sketches, lambda: sketches
+    )
+
+  else:
+    # when using ekfac_svd, need to call updated_sketches() every iteration
+    # since the preconditioner needs to be updated every iteration
+    # even when the sketches are updated every update_freq iterations
+    updated_preconditioner_only = functools.partial(
+        jax.tree_util.tree_map_with_path,
+        lambda p, u, s: _update_sketches(options, p, u, s, False),
+        updates,
+        sketches,
+        is_leaf=is_tensor_state,
+    )
+    new_sketches = jax.lax.cond(
+        should_update_stats, updated_sketches, updated_preconditioner_only
+    )
+
   new_updates = jax.tree_util.tree_map_with_path(
       functools.partial(_precondition, options),
       updates,
@@ -287,13 +329,14 @@ def _update_sketches(
     path: ...,
     update: jax.Array,
     sketches: _TensorState,
+    update_sketches: bool = True,
 ) -> _TensorState:
   """Update sketched covariance statistics given a gradient."""
   new_axes = []
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("UpdateSketchDim{}".format(dim)):
       new_axes.append(
-          _update_axis(options, dim, path, update, axis_state)
+          _update_axis(options, dim, path, update, axis_state, update_sketches)
       )
   return _TensorState(new_axes)
 
@@ -309,6 +352,7 @@ def _precondition(
   original_shape = g.shape
   roll = tuple(range(1, g.ndim)) + (0,)
   memory_alloc = options.memory_alloc
+  ekfac = options.ekfac_svd
   for dim, axis_state in enumerate(sketches.axes):
     with jax.named_scope("SketchPreconditionDim{}".format(dim)):
       # Rotate g during this loop; keep the axis to precondition first.
@@ -318,25 +362,31 @@ def _precondition(
         k = min(d, _locate_path(path, memory_alloc)[dim])
       else:
         k = min(d, options.rank)
-      eigvecs = axis_state.eigvecs
-      assert list(eigvecs.shape) == [d, k]
+      assert list(axis_state.eigvecs.shape) == [d, k]
+      eigvecs = axis_state.eigvecs if not ekfac else axis_state.svd_result_u
       lowrank_basis = jnp.tensordot(g, eigvecs, axes=[[0], [0]])
       lowrank_component = jnp.tensordot(
           lowrank_basis, eigvecs, axes=[[g.ndim - 1], [1]]
       )
       g = jnp.transpose(g, axes=roll)
       complement = g - lowrank_component
-      scaled_basis = lowrank_basis * axis_state.inv_eigvals
+      inv_eigvals = (
+          axis_state.inv_eigvals if not ekfac else axis_state.svd_result_s
+      )
+      scaled_basis = lowrank_basis * inv_eigvals
       scaled_lowrank_component = jnp.tensordot(
           scaled_basis, eigvecs, axes=[[g.ndim - 1], [1]]
       )
-      g = axis_state.inv_tail * complement + scaled_lowrank_component
+      g = scaled_lowrank_component
+      inv_tail = axis_state.inv_tail if not ekfac else axis_state.inv_prev_tail
+      g += inv_tail * complement
   return g
 
 
+# pylint: disable = g-long-lambda
 def _update_axis(
     options: Options, dim: int, path: ..., update: jax.Array,
-    axis_state: _AxisState,
+    axis_state: _AxisState, update_sketches: bool = True,
 ) -> _AxisState:
   """Perform an FD update for statistics."""
   # _low_rank_root
@@ -401,9 +451,46 @@ def _update_axis(
   inv_eigvals = jnp.where(mask, (undeflated + eps) ** alpha, 0)
   eigvals = deflated * mask
   inv_tail = jnp.where(tail > 0, (tail + eps) ** alpha, 0.0)
+
   if options.add_ggt:
     ema_ggt = axis_state.ema_ggt * decay + g_dm.dot(g_dm.T) * (1 - decay)
   else:
     ema_ggt = axis_state.ema_ggt
 
-  return _AxisState(eigvecs, eigvals, inv_eigvals, tail, inv_tail, ema_ggt)
+  if options.ekfac_svd:
+    assert u.shape[1] <= d
+    prev_tail = axis_state.tail
+    undeflated_ekfac = jnp.square(jnp.maximum(s, 0.0)) + prev_tail * decay
+    svd_result_u = u
+    svd_result_s = jnp.where(
+        undeflated_ekfac > 0, (undeflated_ekfac + eps) ** alpha, 0.0
+    )
+    inv_prev_tail = axis_state.inv_tail
+  else:
+    svd_result_u = axis_state.svd_result_u
+    svd_result_s = axis_state.svd_result_s
+    inv_prev_tail = axis_state.inv_prev_tail
+
+  res = _AxisState(
+      eigvecs,
+      eigvals,
+      inv_eigvals,
+      tail,
+      inv_tail,
+      ema_ggt,
+      svd_result_u,
+      svd_result_s,
+      inv_prev_tail,
+  )
+
+  return jax.lax.cond(
+      update_sketches,
+      lambda: res,
+      lambda: res._replace(
+          eigvecs=axis_state.eigvecs,
+          eigvals=axis_state.eigvals,
+          inv_eigvals=axis_state.inv_eigvals,
+          tail=axis_state.tail,
+          inv_tail=axis_state.inv_tail,
+      )
+  )

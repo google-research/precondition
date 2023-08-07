@@ -119,7 +119,7 @@ class SketchyTest(parameterized.TestCase):
     """Test that epsilon is properly calculated."""
     size = 4
     ndim = 2
-    prev = self._make_eye_state(size, [0], 4, ndim)
+    prev = self._make_eye_state(size, [0], 4.0, ndim)
     grad = np.zeros([size] * ndim, np.float32)
     grad[(0,) * ndim] = 2
     options = self._no_decay_options(1, epsilon=1e-3)
@@ -176,6 +176,14 @@ class SketchyTest(parameterized.TestCase):
     )
     jax.tree_map(np.testing.assert_allclose, updates, emw_run)
 
+  # test ekfac restuling preconditioned gradient on random values are finite
+  def test_ekfac(self):
+    tx = sketchy.apply(sketchy.Options(ekfac_svd=True))
+    nsteps = 3
+    shape = (4, 5)
+    updated_grads = self._unroll(tx, nsteps, shape)
+    assert np.all(np.isfinite(updated_grads))
+
   # test covariance-adding equality from FD
   # with rand initial state, and with zero
   #
@@ -186,7 +194,7 @@ class SketchyTest(parameterized.TestCase):
           [1, 2, 3],
           [0.1, 0.9, 1.0],
           ['zero', 'id', 'rand'],
-          [0, 1],
+          [0.0, 1.0],
           [False, True],
       )
   )
