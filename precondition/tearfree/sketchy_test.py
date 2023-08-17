@@ -176,11 +176,19 @@ class SketchyTest(parameterized.TestCase):
     )
     jax.tree_map(np.testing.assert_allclose, updates, emw_run)
 
-  # test ekfac restuling preconditioned gradient on random values are finite
+  # test ekfac resulting preconditioned gradient on random values are finite
   def test_ekfac(self):
     tx = sketchy.apply(sketchy.Options(ekfac_svd=True))
     nsteps = 3
     shape = (4, 5)
+    updated_grads = self._unroll(tx, nsteps, shape)
+    assert np.all(np.isfinite(updated_grads))
+
+  # test the preconditioned gradient from linearly approximated tails are finite
+  def test_linear_approx(self):
+    tx = sketchy.apply(sketchy.Options(rank=6, linear_approx_tail=True))
+    nsteps = 3
+    shape = (10, 10)
     updated_grads = self._unroll(tx, nsteps, shape)
     assert np.all(np.isfinite(updated_grads))
 
