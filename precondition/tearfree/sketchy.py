@@ -436,23 +436,19 @@ def _update_axis(
   deflated = jnp.sqrt(jnp.maximum(0.0, top_eigs - cutoff)) * jnp.sqrt(
       top_eigs + cutoff
   )
-  if options.linear_approx_tail:
-    if k == d:
-      tail = 0.0
-    else:
-      assert d > k, (d, k)
-      num_points = (k + 1) // 2
-      assert num_points > 0
-      ranks = jnp.arange(1, num_points + 1)
-      vals = axis_state.eigvals[:num_points]
-      assert ranks.shape == vals.shape
-      sample_cov = jnp.cov(ranks, vals)
-      s_x, s_xy = sample_cov[0, 0], sample_cov[0, 1]
-      slope = jax.lax.cond(s_x > 0, lambda: s_xy / (s_x ** 2), lambda: 0.0)
-      intercept = jnp.mean(vals) - slope * jnp.mean(ranks)
-      log_ranks = jnp.log(jnp.arange(k + 1, d + 1))
-      fitted_vals = slope * log_ranks + intercept
-      tail = jnp.exp(jax.scipy.special.logsumexp(fitted_vals * 2)) / (d - k)
+  if options.linear_approx_tail and d > k:
+    num_points = (k + 1) // 2
+    assert num_points > 0
+    ranks = jnp.arange(1, num_points + 1)
+    vals = axis_state.eigvals[:num_points]
+    assert ranks.shape == vals.shape
+    sample_cov = jnp.cov(ranks, vals)
+    s_x, s_xy = sample_cov[0, 0], sample_cov[0, 1]
+    slope = jax.lax.cond(s_x > 0, lambda: s_xy / (s_x ** 2), lambda: 0.0)
+    intercept = jnp.mean(vals) - slope * jnp.mean(ranks)
+    log_ranks = jnp.log(jnp.arange(k + 1, d + 1))
+    fitted_vals = slope * log_ranks + intercept
+    tail = jnp.exp(jax.scipy.special.logsumexp(fitted_vals * 2)) / (d - k)
   else:
     tail = axis_state.tail * decay + cutoff**2
   # Avoid numerical error from the sqrt computation and from subtracting
