@@ -685,7 +685,9 @@ class FDLowRankInverseRootTest(chex.TestCase):
     assert size <= padded_size
     eigvecs = jnp.pad(eigvecs, ((0, padded_size - size), (0, 0)))
     eigs = np.array(eigs).astype(np.float32)
-    inv_eigs = np.where(eigs == 0.0, 0.0, eigs**(-1 / self.p))
+    inv_eigs = np.where(
+        eigs == 0.0, 0.0, jnp.where(eigs <= 0, 1, eigs) ** (-1 / self.p)
+    )
     inv_tail = 0.0 if start_tail == 0.0 else start_tail**(-1 / self.p)
     return distributed_shampoo._fd_low_rank_pack(
         eigvecs,
