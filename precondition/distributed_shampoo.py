@@ -1583,7 +1583,7 @@ class Preconditioner:
       for axis in preconditioned_dims:
         update = functools.partial(gram_weighted_update, precision=precision)
         if frequent_directions:
-          if _should_compress(self._compression_rank, g.shape[axis]):
+          if _should_compress(self._compression_rank, g.shape[axis]):  # pytype: disable=wrong-arg-types  # jnp-type
             update = frequent_directions_update
         new_stat = update(to_float(stats[index]), g, axis, w1, w2)
         new_stats.append(from_float(new_stat))

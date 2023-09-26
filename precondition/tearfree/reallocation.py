@@ -154,7 +154,7 @@ def score_fn(
     score_dict[name] = jnp.mean(
         jnp.array([ops_dict[rule](ct) for ct in current_target])
     )
-  return score_dict
+  return score_dict  # pytype: disable=bad-return-type  # jnp-type
 
 
 def create_redist_dict(
