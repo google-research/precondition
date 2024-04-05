@@ -1,4 +1,4 @@
-# Copyright 2023 The precondition Authors.
+# Copyright 2024 The precondition Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -289,8 +289,6 @@ class ShampooTest(parameterized.TestCase):
     rng1, rng2 = jax.random.split(key, 2)
     seq1 = jnp.arange(freq, dtype=int)
     seq2 = jnp.copy(seq1)
-    jax.random.shuffle(rng1, seq1)
-    jax.random.shuffle(rng2, seq2)
     # Shuffle within groups of <freq>
     shuffled = jnp.take(grads, jnp.concatenate([seq1, seq2 + freq]), axis=0)
 
