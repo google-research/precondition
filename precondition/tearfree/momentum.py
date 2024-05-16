@@ -131,7 +131,7 @@ def _sharded_trace(
       s_var_hparams.init = None
       return s_var_hparams
 
-    mdl_sharding = jax.tree_map(_opt_state_sharding_spec, mdl_params)
+    mdl_sharding = jax.tree.map(_opt_state_sharding_spec, mdl_params)
     return optax.TraceState(trace=mdl_sharding)
 
   return praxis_shim.ShardedGradientTransformation(

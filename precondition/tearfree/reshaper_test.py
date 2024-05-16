@@ -106,13 +106,13 @@ class ReshaperTest(parameterized.TestCase):
             1,
         ),
     }
-    init = jax.tree_map(
+    init = jax.tree.map(
         jnp.zeros, shapes, is_leaf=lambda x: isinstance(x, tuple)
     )
     options = reshaper.Options(merge_dims=2, block_size=2)
     init_fn, update_fn = reshaper.merge(options)
     out, _ = update_fn(init, init_fn(None), init)
-    out_shapes = jax.tree_map(lambda x: tuple(x.shape), out)
+    out_shapes = jax.tree.map(lambda x: tuple(x.shape), out)
     expected_shapes = {'w': [[{'b': (4, 2)}]], 'z': (2,)}
 
     self.assertEqual(out_shapes, expected_shapes)

@@ -30,7 +30,7 @@ from precondition.tearfree import praxis_shim
 
 def _minustwo() -> praxis_shim.ShardedGradientTransformation:
   """Generate a direction-reversing gradient transformation."""
-  update = functools.partial(jax.tree_map, lambda x: -2 * x)
+  update = functools.partial(jax.tree.map, lambda x: -2 * x)
   return praxis_shim.ShardedGradientTransformation(
       lambda _: optax.EmptyState,
       lambda u, s, _: (update(u), s),

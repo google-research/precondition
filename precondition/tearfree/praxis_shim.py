@@ -61,7 +61,7 @@ def sharded_chain(
     for s, fn in zip(state, args):
       updates, new_s = fn.update(updates, s, params)
       # Some of the new states may have None instead of optax.MaskedNode.
-      new_s = jax.tree_map(
+      new_s = jax.tree.map(
           lambda x: optax.MaskedNode() if x is None else x,
           new_s,
           is_leaf=lambda x: x is None,

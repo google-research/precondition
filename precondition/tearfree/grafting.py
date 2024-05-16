@@ -205,7 +205,7 @@ def _rmsprop(options: Options) -> praxis_shim.ShardedGradientTransformation:
   """Create RMSProp sharded gradient transform."""
 
   def init_fn(params):
-    acc = jax.tree_map(jnp.zeros_like, params)
+    acc = jax.tree.map(jnp.zeros_like, params)
     return RMSPropAccumulator(acc=acc)
 
   def update_fn(updates, state, params=None):
@@ -219,9 +219,9 @@ def _rmsprop(options: Options) -> praxis_shim.ShardedGradientTransformation:
       else:
         return snew * (1 - second_moment_decay) + second_moment_decay * prev
 
-    new_state = RMSPropAccumulator(jax.tree_map(ema, state.acc, updates))
+    new_state = RMSPropAccumulator(jax.tree.map(ema, state.acc, updates))
     epsilon = options.epsilon
-    new_updates = jax.tree_map(
+    new_updates = jax.tree.map(
         lambda g, acc: g * jax.lax.rsqrt(acc + epsilon), updates, new_state.acc
     )
     return new_updates, new_state
@@ -232,7 +232,7 @@ def _rmsprop(options: Options) -> praxis_shim.ShardedGradientTransformation:
       s_var_hparams.init = None
       return s_var_hparams
 
-    mdl_sharding = jax.tree_map(_opt_state_sharding_spec, mdl_params)
+    mdl_sharding = jax.tree.map(_opt_state_sharding_spec, mdl_params)
     return RMSPropAccumulator(acc=mdl_sharding)
 
   return praxis_shim.ShardedGradientTransformation(
@@ -291,7 +291,7 @@ def _graft_with(
           graft_upd,
       )
 
-    new_updates = jax.tree_map(
+    new_updates = jax.tree.map(
         maybe_graft, graft_updates, base_updates, is_leaf=_masked
     )
     return new_updates, new_state
@@ -334,7 +334,7 @@ def _mask_skipped(options: Options, tree: chex.ArrayTree) -> chex.ArrayTree:
       return _GraftMask()
     return x
 
-  return jax.tree_map(_maybe_mask, tree)
+  return jax.tree.map(_maybe_mask, tree)
 
 
 def _masked(tree_node: Any) -> bool:

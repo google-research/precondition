@@ -103,8 +103,8 @@ def merge(options: Options) -> optax.GradientTransformation:
       state: optax.MaskedNode,
       params: optax.Params,
   ) -> tuple[optax.Updates, optax.MaskedNode]:
-    shapes = jax.tree_map(functools.partial(_derive_shapes, options), params)
-    new_updates = jax.tree_map(_merge, updates, shapes)
+    shapes = jax.tree.map(functools.partial(_derive_shapes, options), params)
+    new_updates = jax.tree.map(_merge, updates, shapes)
     return new_updates, state
 
   return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)
@@ -126,8 +126,8 @@ def unmerge(options: Options) -> optax.GradientTransformation:
       state: optax.MaskedNode,
       params: optax.Params,
   ) -> tuple[optax.Updates, optax.MaskedNode]:
-    shapes = jax.tree_map(functools.partial(_derive_shapes, options), params)
-    new_updates = jax.tree_map(_unmerge, updates, shapes)
+    shapes = jax.tree.map(functools.partial(_derive_shapes, options), params)
+    new_updates = jax.tree.map(_unmerge, updates, shapes)
     return new_updates, state
 
   return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)

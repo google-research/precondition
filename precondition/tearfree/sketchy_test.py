@@ -154,14 +154,14 @@ class SketchyTest(parameterized.TestCase):
         'c': {'d': [4], 'e': [8]},
     }
     tx = sketchy.apply(sketchy.Options(memory_alloc=memory_dict))
-    shape = jax.tree_map(
+    shape = jax.tree.map(
         lambda x: (dim,),
         memory_dict,
         is_leaf=lambda x: isinstance(x, list)
         and all(not isinstance(y, list) for y in x),
     )
     grads_tree, updates = self._unroll(tx, nsteps, shape, None, True)
-    emw_run = jax.tree_map(
+    emw_run = jax.tree.map(
         lambda k, sp, grad: self._unroll(
             tx=sketchy.apply(sketchy.Options(rank=k[0])),
             n=nsteps,
@@ -174,7 +174,7 @@ class SketchyTest(parameterized.TestCase):
         is_leaf=lambda x: isinstance(x, list)
         and all(not isinstance(y, list) for y in x),
     )
-    jax.tree_map(np.testing.assert_allclose, updates, emw_run)
+    jax.tree.map(np.testing.assert_allclose, updates, emw_run)
 
   # test ekfac resulting preconditioned gradient on random values are finite
   def test_ekfac(self):
@@ -287,14 +287,14 @@ class SketchyTest(parameterized.TestCase):
   def _unroll(self, tx, n, shape, grads=None, return_grads=False):
     """Generate states and grad updates n times."""
     rng = jax.random.PRNGKey(0)
-    params = jax.tree_map(
+    params = jax.tree.map(
         jnp.zeros,
         shape,
         is_leaf=lambda x: isinstance(x, tuple)
         and all(isinstance(y, int) for y in x),
     )
     if grads is None:
-      grads = jax.tree_map(
+      grads = jax.tree.map(
           lambda sp: jax.random.normal(rng, (n, *sp)),
           shape,
           is_leaf=lambda x: isinstance(x, tuple)

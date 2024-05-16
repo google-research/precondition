@@ -283,11 +283,11 @@ def _update(
       lambda path, x: _blocks_metadata(options, x.shape, str(path)), updates
   )
   blocks = state.blocks
-  blockified_updates = jax.tree_map(_blockify, updates, meta)
+  blockified_updates = jax.tree.map(_blockify, updates, meta)
   is_block = lambda x: isinstance(x, _AxesBlocks)
 
   stats_updated_blocks = functools.partial(
-      jax.tree_map,
+      jax.tree.map,
       functools.partial(_update_block_stats, options.second_moment_decay),
       blockified_updates,
       blocks,
@@ -300,7 +300,7 @@ def _update(
   )
 
   precond_updated_blocks = functools.partial(
-      jax.tree_map,
+      jax.tree.map,
       _update_block_precond,
       blocks,
       meta,
@@ -313,10 +313,10 @@ def _update(
       should_update_precond, precond_updated_blocks, lambda: blocks
   )
   new_state = _ShampooState(count=state.count + 1, blocks=blocks)
-  new_updates = jax.tree_map(
+  new_updates = jax.tree.map(
       _precondition_blocks, blockified_updates, blocks, meta, is_leaf=is_block
   )
-  new_updates = jax.tree_map(_deblockify, new_updates, meta)
+  new_updates = jax.tree.map(_deblockify, new_updates, meta)
 
   return new_updates, new_state
 
