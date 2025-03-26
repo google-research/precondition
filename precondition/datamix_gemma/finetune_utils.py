@@ -16,8 +16,8 @@ from copy import deepcopy
 
 from absl import flags
 from absl import logging
-from gemma import params as params_lib
-from gemma import transformer as transformer_lib
+from gemma.deprecated import params as params_lib
+from gemma.deprecated import transformer as transformer_lib
 # Finally, we import Gemma.
 import jax
 import numpy as np

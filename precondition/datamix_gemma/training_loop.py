@@ -19,7 +19,7 @@ import threading
 from absl import logging
 import chex
 from flax import jax_utils
-from gemma import transformer as transformer_lib
+from gemma.deprecated import transformer as transformer_lib
 import jax
 import jax.numpy as jnp
 import numpy as np

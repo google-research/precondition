@@ -36,9 +36,9 @@ import dataclasses
 import logging
 
 import chex
-from gemma import modules
-from gemma import params as params_lib
-from gemma import transformer as transformer_lib
+from gemma.deprecated import modules
+from gemma.deprecated import params as params_lib
+from gemma.deprecated import transformer as transformer_lib
 import jax
 import jax.numpy as jnp
 from jax.sharding import Mesh
