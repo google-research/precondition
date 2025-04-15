@@ -25,6 +25,8 @@ import numpy as np
 import optax
 from precondition.tearfree import momentum
 
+jax.config.update('jax_threefry_partitionable', False)
+
 
 def _make_no_state_cases() -> Sequence[dict[str, ...]]:
   bools = [False, True]
