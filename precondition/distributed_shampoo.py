@@ -1,4 +1,4 @@
-# Copyright 2024 The precondition Authors.
+# Copyright 2025 The precondition Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -649,7 +649,7 @@ def power_iteration(
   _, v_out, s_out, _, _ = lax.while_loop(_iter_condition, _iter_body,
                                          init_state)
   v_out = v_out / jnp.linalg.norm(v_out)
-  return v_out, s_out
+  return v_out, s_out  # pytype: disable=bad-return-type  # lax-types
 
 
 def mat_power(
@@ -876,7 +876,7 @@ def matrix_inverse_pth_root(
       iters, mat_m, mat_h, old_mat_h, error, error_ratio = lax.while_loop(
           _iter_condition, _iter_body, init_state)
       error = jnp.max(jnp.abs(mat_m - identity)).astype(jnp.float32)
-      is_converged = jnp.asarray(error_ratio < max_error_ratio, old_mat_h.dtype)
+      is_converged = jnp.asarray(error_ratio < max_error_ratio, old_mat_h.dtype)  # pytype: disable=attribute-error  # lax-types
       resultant_mat_h = is_converged * mat_h + (1 - is_converged) * old_mat_h
       return (i + 1, resultant_mat_h, error, iters, error_ratio,
               error > retry_loop_error_threshold)
@@ -2871,7 +2871,7 @@ def distributed_shampoo(
             all_statistics[current_replica],
             all_exponents[current_replica],
             all_paddings[current_replica],
-            _maybe_ix(all_preconditioners, current_replica),
+            _maybe_ix(all_preconditioners, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
         )
         preconditioners = jax.lax.all_gather(preconditioners, batch_axis_name)
         metrics = jax.lax.all_gather(metrics, batch_axis_name)
@@ -3109,9 +3109,9 @@ def distributed_shampoo(
            all_quantized_bucket_sizes[current_replica],
            all_exponents[current_replica],
            all_paddings[current_replica],
-           _maybe_ix(all_quantized_precond_mats, current_replica),
-           _maybe_ix(all_quantized_precond_diagonals, current_replica),
-           _maybe_ix(all_quantized_precond_bucket_sizes, current_replica),
+           _maybe_ix(all_quantized_precond_mats, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
+           _maybe_ix(all_quantized_precond_diagonals, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
+           _maybe_ix(all_quantized_precond_bucket_sizes, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
        )
       quantized_preconditioners = jax.lax.all_gather(quantized_preconditioners,
                                                      batch_axis_name)
