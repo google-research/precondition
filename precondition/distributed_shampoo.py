@@ -1,4 +1,4 @@
-# Copyright 2025 The precondition Authors.
+# Copyright 2026 The precondition Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2645,7 +2645,7 @@ def distributed_shampoo(
         grad = new_avg_grad / statistics_compute_steps
 
       def compute_updated_statistics():
-        return preconditioner.updated_statistics_from_grad(
+        return preconditioner.updated_statistics_from_grad(  # pytype: disable=wrong-arg-types
             state.statistics,
             grad,
             w1=w1,
