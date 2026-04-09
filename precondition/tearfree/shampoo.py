@@ -197,7 +197,7 @@ def _validate(options: Options) -> None:
 def _init(options: Options, params: optax.Params) -> _ShampooState:
   """Inititialize stats to 0 and preconditioners to identity."""
 
-  def make_blocks(path: ..., param: jax.Array) -> _AxesBlocks:
+  def make_blocks(path, param: jax.Array) -> _AxesBlocks:
     if any(dim == 1 for dim in param.shape):
       raise ValueError(
           "param {} shape ({}) has unit dimensions".format(path, param.shape)
@@ -246,7 +246,7 @@ def _pspec(
   )
 
   def make_blocks_pspec(
-      path: ...,
+      path,
       param: praxis_shim.WeightHParams,
   ) -> praxis_shim.NestedHParams:
     meta = _blocks_metadata(options, param.shape, str(path))

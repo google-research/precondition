@@ -131,7 +131,7 @@ def _validate(options: Options) -> None:
     raise ValueError(f"rank ({options.rank}) must be at least 1")
 
 
-def _path_to_key(path: ...) -> str:
+def _path_to_key(path) -> str:
   concat_path = ""
   for dickey in path:
     if hasattr(dickey, "key"):
@@ -144,7 +144,7 @@ def _path_to_key(path: ...) -> str:
 
 
 def _locate_path(
-    path: ..., dictionary: dict[str, Any]
+    path, dictionary: dict[str, Any]
 ) -> Union[dict[str, Any], list[int]]:
 
   """Locate a path in a dictionary."""
@@ -163,7 +163,7 @@ def _locate_path(
 def _init(options: Options, params: optax.Params) -> _SketchyState:
   """Inititialize sketch."""
 
-  def _tensor_state(path: ..., param: jax.Array) -> _TensorState:
+  def _tensor_state(path, param: jax.Array) -> _TensorState:
     axes = []
     axes_idx = 0
     add_ggt = options.add_ggt
@@ -204,6 +204,7 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
           )
       )
     return _TensorState(axes)
+
   return _SketchyState(
       count=jnp.zeros([], jnp.int32),
       sketches=jax.tree_util.tree_map_with_path(_tensor_state, params)
@@ -224,7 +225,7 @@ def _pspec(
   )
 
   def _tensor_pspec(
-      path: ...,
+      path,
       param: praxis_shim.WeightHParams,
   ) -> praxis_shim.NestedHParams:
 
@@ -268,6 +269,7 @@ def _pspec(
             for d, axes_idx in zip(param.shape, range(len(param.shape)))
         ]
     )
+
   return dict(
       count=count_pspec,
       sketches=jax.tree_util.tree_map_with_path(
@@ -329,7 +331,7 @@ def _update(
 
 def _update_sketches(
     options: Options,
-    path: ...,
+    path,
     update: jax.Array,
     sketches: _TensorState,
     update_sketches: bool = True,
@@ -346,7 +348,7 @@ def _update_sketches(
 
 def _precondition(
     options: Options,
-    path: ...,
+    path,
     update: jax.Array,
     sketches: _TensorState,
 ) -> jax.Array:
@@ -388,8 +390,12 @@ def _precondition(
 
 # pylint: disable = g-long-lambda
 def _update_axis(
-    options: Options, dim: int, path: ..., update: jax.Array,
-    axis_state: _AxisState, update_sketches: bool = True,
+    options: Options,
+    dim: int,
+    path,
+    update: jax.Array,
+    axis_state: _AxisState,
+    update_sketches: bool = True,
 ) -> _AxisState:
   """Perform an FD update for statistics."""
   # _low_rank_root

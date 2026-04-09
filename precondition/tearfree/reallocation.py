@@ -289,7 +289,7 @@ def _validate_flags():
   return 0
 
 
-def main(argv: ...):
+def main(argv):
   del argv
   _validate_flags()
   args = [_DIR.value, _IDX.value, _RULE.value, _AVG.value, _RANK.value]
@@ -298,4 +298,3 @@ def main(argv: ...):
 
 if __name__ == '__main__':
   app.run(main)
-

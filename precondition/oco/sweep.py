@@ -134,7 +134,7 @@ def _make_directory():
   return directory
 
 
-def main(argv: ...) -> None:
+def main(argv) -> None:
   del argv
 
   is_sweep = _validate_flags()
