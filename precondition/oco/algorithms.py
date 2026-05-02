@@ -156,7 +156,7 @@ def _fd_init_fn(w_shape: tuple[int], hparams: HParams) -> State:
 # The "alpha0" hparam for RFD (not RFD0) is exactly hparams['delta']. Note that
 # RFD and RFD0 can also be given a learning rate which scales eta_t; we choose
 # a parameterization consistent with other algorithms' uses of hparams['lr'].
-def _rfd(state: State, hparams: HParams) -> ...:
+def _rfd(state: State, hparams: HParams):
   """Create RFD-specific algorithmic changes."""
   sketch_update_factor = jax.lax.rsqrt(state['t'] * hparams.lr)
   alpha_update_factor = 0.5
@@ -174,7 +174,7 @@ def _rfd(state: State, hparams: HParams) -> ...:
 #  - we again consolidate all constants on eta_t into hparams['lr']
 #
 # Per screen/AB4SSFXvAh6PYe7, alpha does not update.
-def _fdson(state: State, hparams: HParams) -> ...:
+def _fdson(state: State, hparams: HParams):
   """Create FD-SON-specific algorithmic changes."""
   sketch_update_factor = jax.lax.rsqrt(jnp.sqrt(state['t']) * hparams.lr)
   alpha_update_factor = 0.0
@@ -188,7 +188,7 @@ def _fdson(state: State, hparams: HParams) -> ...:
 #  - Similar to S-Adagrad, except no updating alpha (dynamic diagonal).
 #  - However, they add delta to the *square rooted* eigenvalues, unlike
 #    all the other works.
-def _adafd(state: State, hparams: HParams) -> ...:
+def _adafd(state: State, hparams: HParams):
   """Create Ada-FD-specific algorithmic changes."""
   del state
   sketch_update_factor = 1.0
@@ -199,7 +199,7 @@ def _adafd(state: State, hparams: HParams) -> ...:
 
 
 # S-Adagrad - https://arxiv.org/pdf/2302.03764.pdf
-def _sada(state: State, hparams: HParams) -> ...:
+def _sada(state: State, hparams: HParams):
   """Create S-Adagrad-specific algorithmic changes."""
   del state
   sketch_update_factor = 1.0
@@ -209,7 +209,7 @@ def _sada(state: State, hparams: HParams) -> ...:
   return sketch_update_factor, alpha_update_factor, lr, eig_inversion
 
 
-def _fd_method_factors(state: State, hparams: HParams) -> ...:
+def _fd_method_factors(state: State, hparams: HParams):
   """Create algorithmic variants specific to hparams."""
   return {
       Algorithm.RFD_SON: _rfd(state, hparams),
