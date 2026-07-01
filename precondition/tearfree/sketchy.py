@@ -176,7 +176,7 @@ def _init(options: Options, params: optax.Params) -> _SketchyState:
             "param {} shape ({}) has unit dimensions".format(path, param.shape)
         )
       if memory_alloc:
-        k = min(d, _locate_path(path, memory_alloc)[axes_idx])
+        k = min(d, _locate_path(path, memory_alloc)[axes_idx])  # pyrefly: ignore[bad-index]
         logging.info("custom rank: %d rank allocated to %s",
                      k, _path_to_key(path))
       else:
@@ -244,7 +244,7 @@ def _pspec(
       memory_alloc = options.memory_alloc
       ekfac = options.ekfac_svd
       if memory_alloc:
-        k = min(d, _locate_path(path, memory_alloc)[axes_idx])
+        k = min(d, _locate_path(path, memory_alloc)[axes_idx])  # pyrefly: ignore[bad-index]
       else:
         k = min(d, options.rank)
       add_ggt = options.add_ggt
@@ -364,14 +364,14 @@ def _precondition(
       d = original_shape[dim]
       assert g.shape[0] == d
       if memory_alloc:
-        k = min(d, _locate_path(path, memory_alloc)[dim])
+        k = min(d, _locate_path(path, memory_alloc)[dim])  # pyrefly: ignore[bad-index]
       else:
         k = min(d, options.rank)
       assert list(axis_state.eigvecs.shape) == [d, k]
       eigvecs = axis_state.eigvecs if not ekfac else axis_state.svd_result_u
-      lowrank_basis = jnp.tensordot(g, eigvecs, axes=[[0], [0]])
+      lowrank_basis = jnp.tensordot(g, eigvecs, axes=[[0], [0]])  # pyrefly: ignore[bad-argument-type]
       lowrank_component = jnp.tensordot(
-          lowrank_basis, eigvecs, axes=[[g.ndim - 1], [1]]
+          lowrank_basis, eigvecs, axes=[[g.ndim - 1], [1]]  # pyrefly: ignore[bad-argument-type]
       )
       g = jnp.transpose(g, axes=roll)
       complement = g - lowrank_component
@@ -380,11 +380,11 @@ def _precondition(
       )
       scaled_basis = lowrank_basis * inv_eigvals
       scaled_lowrank_component = jnp.tensordot(
-          scaled_basis, eigvecs, axes=[[g.ndim - 1], [1]]
+          scaled_basis, eigvecs, axes=[[g.ndim - 1], [1]]  # pyrefly: ignore[bad-argument-type]
       )
       g = scaled_lowrank_component
       inv_tail = axis_state.inv_tail if not ekfac else axis_state.inv_prev_tail
-      g += inv_tail * complement
+      g += inv_tail * complement  # pyrefly: ignore[unsupported-operation]
   return g
 
 
@@ -402,7 +402,7 @@ def _update_axis(
   d = update.shape[dim]
   memory_alloc = options.memory_alloc
   if memory_alloc:
-    k = min(d, _locate_path(path, memory_alloc)[dim])
+    k = min(d, _locate_path(path, memory_alloc)[dim])  # pyrefly: ignore[bad-index]
   else:
     k = min(d, options.rank)
 
@@ -478,7 +478,7 @@ def _update_axis(
   inv_tail = jnp.where(tail > 0, (tail + eps) ** alpha, 0.0)
 
   if options.add_ggt:
-    ema_ggt = axis_state.ema_ggt * decay + g_dm.dot(g_dm.T) * (1 - decay)
+    ema_ggt = axis_state.ema_ggt * decay + g_dm.dot(g_dm.T) * (1 - decay)  # pyrefly: ignore[unsupported-operation]
   else:
     ema_ggt = axis_state.ema_ggt
 

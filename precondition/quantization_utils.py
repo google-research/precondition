@@ -106,7 +106,7 @@ class QuantizedValue:
       return self.quantized.astype(jnp.float32)
 
     float_dtype = self.bucket_size.dtype
-    bucket_size = self.bucket_size[jnp.newaxis, ...]
+    bucket_size = self.bucket_size[jnp.newaxis, ...]  # pyrefly: ignore[bad-index]
     val = self.quantized.astype(float_dtype) * bucket_size
     if self.extract_diagonal:
       val += jnp.diag(self.diagonal)

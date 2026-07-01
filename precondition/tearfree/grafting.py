@@ -179,7 +179,7 @@ def _adafactor(options: Options) -> praxis_shim.ShardedGradientTransformation:
       multiply_by_parameter_scale=options.multiply_by_parameter_scale,
       eps=options.epsilon, clipping_threshold=options.clipping_threshold)]
   # Sign flip: optax.adafactor uses descent direction in updates.
-  tx.append(optax.scale(-1))
+  tx.append(optax.scale(-1))  # pyrefly: ignore[bad-argument-type]
   grad_transform = optax.chain(*tx)
 
   def _adafactor_pspec_fn(params_unused):

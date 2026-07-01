@@ -168,7 +168,7 @@ def create_redist_dict(
   """Create dictionary of reallocated memory to each layers."""
   if not states:
     states = create_state(file_dir, idx)
-  sketches = states[-1]['inner_state']['0']['direction']['1']['sketches']
+  sketches = states[-1]['inner_state']['0']['direction']['1']['sketches']  # pyrefly: ignore[bad-index]
   layer_names, num_axes = layers_and_axes(sketches)
   group_dict = create_groups(sketches, layer_names)
   score_dict = score_fn(states, rule, layer_names, running_average)
@@ -293,7 +293,7 @@ def main(argv):
   del argv
   _validate_flags()
   args = [_DIR.value, _IDX.value, _RULE.value, _AVG.value, _RANK.value]
-  return create_redist_dict(*args)
+  return create_redist_dict(*args)  # pyrefly: ignore[bad-argument-type]
 
 
 if __name__ == '__main__':

@@ -97,7 +97,7 @@ def run_dataset(
   assert num_obs >= 2
 
   dataset = datasets.load_dataset(dataset_name, dataset_cache)
-  init_fn, update_fn = algorithms.generate_init_update(dataset.w_shape, hparams)
+  init_fn, update_fn = algorithms.generate_init_update(dataset.w_shape, hparams)  # pyrefly: ignore[bad-argument-type]
 
   obs_ixs = np.round(
       np.linspace(0, dataset.x.shape[0], num=num_obs, endpoint=True)
@@ -110,7 +110,7 @@ def run_dataset(
   assert 'w' in initial_state, list(initial_state)
   assert 'n' not in initial_state, list(initial_state)
   initial_state['loss'] = jnp.array(0.0, dtype=jnp.float64)
-  initial_state['n'] = 0
+  initial_state['n'] = 0  # pyrefly: ignore[unsupported-operation]
   if extra_loss is not None:
     initial_state['extra_loss'] = jnp.array(0.0, dtype=jnp.float64)
 

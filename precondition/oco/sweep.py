@@ -164,11 +164,11 @@ def main(argv) -> None:
       hparams.append(hparam)
   else:
     dfs = []
-    for previous_directory in _USE_BEST_FROM.value:
+    for previous_directory in _USE_BEST_FROM.value:  # pyrefly: ignore[not-iterable]
       dfs.append(_read_pandas(previous_directory, dataset_name, sketch_size))
     df = pd.concat(dfs, axis=0)
-    df.sort_values('loss', inplace=True)
-    df.drop_duplicates('alg', inplace=True)
+    df.sort_values('loss', inplace=True)  # pyrefly: ignore[no-matching-overload]
+    df.drop_duplicates('alg', inplace=True)  # pyrefly: ignore[no-matching-overload]
     algs = df.alg.unique()
     hparams = []
     for alg in _ALGS.value:
@@ -202,7 +202,7 @@ def main(argv) -> None:
       raise e
   logging.info('all %s hparam tunings complete', total)
 
-  result_df = _make_pandas(hparams, dataset_name, sketch_size, histories)
+  result_df = _make_pandas(hparams, dataset_name, sketch_size, histories)  # pyrefly: ignore[bad-argument-type]
   result_df.sort_values('loss', inplace=True)
   _save_pandas(directory, result_df)
   best_df = result_df.drop_duplicates('alg', inplace=False)
@@ -304,7 +304,7 @@ def _read_pandas(
       dataset_name,
       sketch_size,
   )
-  return df
+  return df  # pyrefly: ignore[bad-return]
 
 
 def _make_pandas(
