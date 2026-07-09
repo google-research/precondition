@@ -392,7 +392,7 @@ class DistributedShampooTest(chex.TestCase, parameterized.TestCase):
         # The fact that this is so large keeps vladf up at night,
         # but without padding_start argument it's even worse (>1).
         rtol=1e-2 if sz == 4 else 5e-2,
-        err_msg=np.array2string(rt - pad_rt_principal))
+        err_msg=np.array2string(rt - pad_rt_principal))  # pyrefly: ignore[bad-argument-type]
     self.assertLessEqual(pad_err, 4 * err)
     self.assertEqual(np.abs(pad_rt[sz:]).sum(), 0)
     self.assertEqual(np.abs(pad_rt[:, sz:]).sum(), 0)
@@ -619,7 +619,7 @@ class FDLowRankInverseRootTest(chex.TestCase):
   def tearDown(self):
     self.rank = None
     self.p = None
-    self.rng = None
+    self.rng = None  # pyrefly: ignore[bad-assignment]
     super().tearDown()
 
   def _fd_update(
@@ -633,7 +633,7 @@ class FDLowRankInverseRootTest(chex.TestCase):
     assert self.p is not None
     assert self.rank is not None
     assert grad is not None or prev is not None
-    padded_size = len(grad) if grad is not None else len(prev)
+    padded_size = len(grad) if grad is not None else len(prev)  # pyrefly: ignore[bad-argument-type]
     if grad is None:
       grad = np.zeros([padded_size, padded_size], np.float32)
     else:

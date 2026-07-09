@@ -107,7 +107,7 @@ def merge(options: Options) -> optax.GradientTransformation:
     new_updates = jax.tree.map(_merge, updates, shapes)
     return new_updates, state
 
-  return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)
+  return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)  # pyrefly: ignore[bad-argument-type]
 
 
 def unmerge(options: Options) -> optax.GradientTransformation:
@@ -130,4 +130,4 @@ def unmerge(options: Options) -> optax.GradientTransformation:
     new_updates = jax.tree.map(_unmerge, updates, shapes)
     return new_updates, state
 
-  return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)
+  return optax.GradientTransformation(lambda _: optax.MaskedNode(), update)  # pyrefly: ignore[bad-argument-type]
