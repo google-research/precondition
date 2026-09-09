@@ -909,10 +909,10 @@ def matrix_inverse_pth_root(
   if lobpcg_topk_precondition > 0:
     damped_matrix = matrix + (ridge_epsilon * (10**total_retries) * identity)
     conditioned_diagnostics = InversePthRootDiagnostics.create(
-        conditioned_resultant_mat, damped_matrix, p)
+        conditioned_resultant_mat, damped_matrix, p)  # pyrefly: ignore[bad-argument-type]
     unconditioned_damped_matrix = original_matrix + ridge_epsilon * identity
     unconditioned_diagnostics = InversePthRootDiagnostics.create(
-        resultant_mat_h, unconditioned_damped_matrix, p)
+        resultant_mat_h, unconditioned_damped_matrix, p)  # pyrefly: ignore[bad-argument-type]
     # The max entrywise error in error_metrics.inverse_pth_root_errors refers
     # to what was derived from the inverse pth root iteration, which with
     # LOBPCG refers to the conditioned problem. Make sure to use the error

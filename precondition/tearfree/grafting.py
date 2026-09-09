@@ -267,7 +267,7 @@ def _graft_with(
 
   def update_fn(updates, state, params=None):
     base_updates, base_state = direction.update(
-        mask(updates), state.direction, mask(params)
+        mask(updates), state.direction, mask(params)  # pyrefly: ignore[bad-argument-type]
     )
     graft_updates, graft_state = norm.update(updates, state.norm, params)
     new_state = GraftingState(
