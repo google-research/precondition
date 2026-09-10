@@ -72,6 +72,8 @@ def sm3(
     """Initialise the optimiser's state."""
 
     def _init(param):
+      # Quantization and SM3 accumulators require at least one dimension.
+      param = jnp.atleast_1d(param)
       accumulators = [jnp.zeros([s]) for s in param.shape]
       momentum = _quantize_momentum(jnp.zeros_like(param))
       return ParameterStats(accumulators, momentum)  # pytype: disable=wrong-arg-types  # numpy-scalars
@@ -108,6 +110,8 @@ def sm3(
     return all_diagonal_statistics
 
   def update_fn(updates, state, params):
+    original_updates = updates
+    updates = jax.tree.map(jnp.atleast_1d, updates)
     stats = state.stats
     if normalize_grads:
       updates = jax.tree.map(
@@ -162,7 +166,10 @@ def sm3(
     if callable(learning_rate):
       lr = learning_rate(state.count)
 
-    new_updates = jax.tree.map(lambda pg: -lr * pg, updated_momentum_with_wd)
+    new_updates = jax.tree.map(
+        lambda pg, grad: -lr * pg.reshape(grad.shape),
+        updated_momentum_with_wd,
+        original_updates)
     return new_updates, SM3State(count=state.count+1, stats=new_sm3_stats)
 
   return optax.GradientTransformation(init_fn, update_fn)  # pyrefly: ignore[bad-argument-type]
