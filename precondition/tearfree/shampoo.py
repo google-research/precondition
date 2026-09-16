@@ -240,7 +240,7 @@ def _pspec(
   count_pspec = praxis_shim.WeightHParams(
       shape=[],
       init=None,
-      dtype=jnp.int32,
+      dtype=jnp.int32,  # pyrefly: ignore[bad-argument-type]
       collections=None,
       tensor_split_dims_mapping=[],
   )

@@ -2379,7 +2379,7 @@ def distributed_shampoo(
       local_stats_flat.append(
           LocalShardedParameterStats(  # pytype: disable=wrong-arg-types  # numpy-scalars
               QuantizedValue(diagonal_statistics_shape_and_dtype, [], [],  # pytype: disable=wrong-arg-types  # numpy-scalars
-                             jnp.float32, False, list(param.shape)),
+                             jnp.float32, False, list(param.shape)),  # pyrefly: ignore[bad-argument-type]
               QuantizedValue(m1_shape_and_dtype, [], m1_scale_shape_and_dtype,  # pytype: disable=wrong-arg-types  # numpy-scalars
                              qdtype, False, list(param.shape)),
               QuantizedValue(m2_shape_and_dtype, [], m2_scale_shape_and_dtype,  # pytype: disable=wrong-arg-types  # numpy-scalars
