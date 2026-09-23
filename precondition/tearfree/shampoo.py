@@ -467,7 +467,7 @@ def _pth_inv_root(p: int, cov: jax.Array) -> jax.Array:
   """Calculate a batch of p-th inverse roots."""
   eps = 1e-6
   w, v = jnp.linalg.eigh(cov)
-  mask = w <= eps * jnp.max(w)
+  mask = w <= eps * jnp.max(w, axis=-1, keepdims=True)
   half = jnp.where(mask, 1.0, w) ** (-0.5 / p)
   half = jnp.where(mask, 0.0, half)
   half_v = jnp.expand_dims(half, -2) * v
