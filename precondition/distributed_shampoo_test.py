@@ -440,7 +440,7 @@ class DistributedShampooTest(chex.TestCase, parameterized.TestCase):
     assert 2**log2 == p, (p, log2)
 
     root = functools.partial(
-        distributed_shampoo.matrix_inverse_pth_root, ridge_epsilon=epsilon, p=p)
+        distributed_shampoo.matrix_inverse_pth_root, ridge_epsilon=epsilon, p=p)  # pyrefly: ignore[bad-argument-type]
     root_lobpcg = functools.partial(
         root, lobpcg_topk_precondition=2, lobpcg_max_iter=10)
 

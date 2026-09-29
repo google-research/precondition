@@ -219,7 +219,7 @@ def _pspec(
   count_pspec = praxis_shim.WeightHParams(
       shape=[],
       init=None,
-      dtype=jnp.int32,
+      dtype=jnp.int32,  # pyrefly: ignore[bad-argument-type]
       collections=None,
       tensor_split_dims_mapping=[],
   )
@@ -235,7 +235,7 @@ def _pspec(
       return praxis_shim.WeightHParams(
           shape=list(shape),
           init=None,
-          dtype=jnp.float32,
+          dtype=jnp.float32,  # pyrefly: ignore[bad-argument-type]
           collections=None,
           tensor_split_dims_mapping=[-1] * len(shape),
       )
