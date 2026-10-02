@@ -19,6 +19,7 @@ import enum
 from typing import Optional
 
 import optax
+from precondition.tearfree import dynamic_sketchy
 from precondition.tearfree import praxis_shim
 from precondition.tearfree import reshaper
 from precondition.tearfree import shampoo
@@ -31,6 +32,7 @@ class SecondOrderType(enum.Enum):
 
   SHAMPOO = 'shampoo'
   SKETCHY = 'sketchy'
+  DYNAMIC = 'dynamic_sketchy'
 
 
 @dataclasses.dataclass
@@ -42,6 +44,7 @@ class Options:
     second_order_type: Which optimizer to use for grafting updates.
     shampoo_options: Options for blocked shampoo.
     sketchy_options: Options for Sketchy.
+    dynamic_sketchy_options: Options for dynamic Sketchy.
   """
 
   merge_dims: int = 1024
@@ -50,6 +53,7 @@ class Options:
       default_factory=shampoo.Options
   )
   sketchy_options: Optional[sketchy.Options] = None
+  dynamic_sketchy_options: Optional[dynamic_sketchy.Options] = None
 
 
 def apply(options: Options) -> praxis_shim.ShardedGradientTransformation:
@@ -81,6 +85,8 @@ def _reshaper_options(options: Options) -> reshaper.Options:
     return reshaper.Options(options.merge_dims, block_size)
   if options.second_order_type == SecondOrderType.SKETCHY:
     return reshaper.Options(options.merge_dims, 0)
+  if options.second_order_type == SecondOrderType.DYNAMIC:
+    return reshaper.Options(options.merge_dims, 0)
   else:
     raise ValueError(
         'unknown second order type {}'.format(options.second_order_type)
@@ -96,6 +102,9 @@ def _update_stats_and_precondition(
   if options.second_order_type == SecondOrderType.SKETCHY:
     assert options.sketchy_options
     return sketchy.apply(options.sketchy_options)
+  if options.second_order_type == SecondOrderType.DYNAMIC:
+    assert options.dynamic_sketchy_options
+    return dynamic_sketchy.apply(options.dynamic_sketchy_options)
   else:
     raise ValueError(
         'unknown second order type {}'.format(options.second_order_type)
