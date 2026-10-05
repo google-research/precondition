@@ -649,7 +649,7 @@ def power_iteration(
   _, v_out, s_out, _, _ = lax.while_loop(_iter_condition, _iter_body,
                                          init_state)
   v_out = v_out / jnp.linalg.norm(v_out)
-  return v_out, s_out  # pytype: disable=bad-return-type  # lax-types
+  return v_out, s_out  # pyrefly: ignore[bad-return]
 
 
 def mat_power(
@@ -876,7 +876,7 @@ def matrix_inverse_pth_root(
       iters, mat_m, mat_h, old_mat_h, error, error_ratio = lax.while_loop(
           _iter_condition, _iter_body, init_state)
       error = jnp.max(jnp.abs(mat_m - identity)).astype(jnp.float32)
-      is_converged = jnp.asarray(error_ratio < max_error_ratio, old_mat_h.dtype)  # pytype: disable=attribute-error  # lax-types
+      is_converged = jnp.asarray(error_ratio < max_error_ratio, old_mat_h.dtype)  # pyrefly: ignore[missing-attribute]
       resultant_mat_h = is_converged * mat_h + (1 - is_converged) * old_mat_h
       return (i + 1, resultant_mat_h, error, iters, error_ratio,
               error > retry_loop_error_threshold)
@@ -1264,7 +1264,7 @@ def _fd_update_root(
       inverse_pth_root_errors=jnp.array(0.0, jnp.float32))
   if generate_training_metrics and generate_fd_metrics:
     error_metrics = error_metrics.replace(
-        fd=FDDiagnostics.create(  # pytype: disable=wrong-arg-types  # jax-ndarray
+        fd=FDDiagnostics.create(
             rho_t,
             new_tail,
             deflated_eigs,
@@ -1583,7 +1583,7 @@ class Preconditioner:
       for axis in preconditioned_dims:
         update = functools.partial(gram_weighted_update, precision=precision)
         if frequent_directions:
-          if _should_compress(self._compression_rank, g.shape[axis]):  # pytype: disable=wrong-arg-types  # jnp-type
+          if _should_compress(self._compression_rank, g.shape[axis]):
             update = frequent_directions_update
         new_stat = update(to_float(stats[index]), g, axis, w1, w2)
         new_stats.append(from_float(new_stat))
@@ -2213,7 +2213,7 @@ def distributed_shampoo(
       momentum = _quantize_momentum(jnp.zeros_like(param))
 
       local_stats_flat.append(
-          LocalShardedParameterStats(  # pytype: disable=wrong-arg-types  # numpy-scalars
+          LocalShardedParameterStats(
               diagonal_statistics,
               diagonal_momentum,
               momentum,
@@ -2316,12 +2316,12 @@ def distributed_shampoo(
         m2_scale_pspec = _remove_leading_sharding_annotation(m2_pspec)
 
       local_stats_flat.append(
-          LocalShardedParameterStats(  # pytype: disable=wrong-arg-types  # numpy-scalars
-              QuantizedValue(param_pspec, [], [], jnp.float32, False,  # pytype: disable=wrong-arg-types  # numpy-scalars
+          LocalShardedParameterStats(
+              QuantizedValue(param_pspec, [], [], jnp.float32, False,  # pyrefly: ignore[bad-argument-type]
                              list(param.shape)),
-              QuantizedValue(m1_pspec, [], m1_scale_pspec, qdtype, False,  # pytype: disable=wrong-arg-types  # numpy-scalars
+              QuantizedValue(m1_pspec, [], m1_scale_pspec, qdtype, False,  # pyrefly: ignore[bad-argument-type]
                              list(param.shape)),
-              QuantizedValue(m2_pspec, [], m2_scale_pspec, qdtype, False,  # pytype: disable=wrong-arg-types  # numpy-scalars
+              QuantizedValue(m2_pspec, [], m2_scale_pspec, qdtype, False,  # pyrefly: ignore[bad-argument-type]
                              list(param.shape)),
               init_avg_grad_pspec(param_pspec, frequent_directions and
                                   average_grad),
@@ -2333,11 +2333,11 @@ def distributed_shampoo(
               sizes))
 
     local_stats = jax.tree.unflatten(treedef, local_stats_flat)
-    global_stats = GlobalShardedParameterStats(partition_spec_for_statistics,  # pytype: disable=wrong-arg-types  # numpy-scalars
+    global_stats = GlobalShardedParameterStats(partition_spec_for_statistics,
                                                partition_spec_for_statistics,
                                                jax.sharding.PartitionSpec())  # pyrefly: ignore[bad-argument-type]
     count_pspec = jax.sharding.PartitionSpec()
-    return ShampooState(  # pytype: disable=wrong-arg-types  # numpy-scalars
+    return ShampooState(
         count=count_pspec, stats=ShardedShampooStats(global_stats, local_stats))  # pyrefly: ignore[bad-argument-type]
 
   def sharded_init_shape_and_dtype_fn(params):
@@ -2377,12 +2377,12 @@ def distributed_shampoo(
 
       diagonal_statistics_shape_and_dtype = [list(param.shape), param.dtype]
       local_stats_flat.append(
-          LocalShardedParameterStats(  # pytype: disable=wrong-arg-types  # numpy-scalars
-              QuantizedValue(diagonal_statistics_shape_and_dtype, [], [],  # pytype: disable=wrong-arg-types  # numpy-scalars
+          LocalShardedParameterStats(
+              QuantizedValue(diagonal_statistics_shape_and_dtype, [], [],  # pyrefly: ignore[bad-argument-type]
                              jnp.float32, False, list(param.shape)),  # pyrefly: ignore[bad-argument-type]
-              QuantizedValue(m1_shape_and_dtype, [], m1_scale_shape_and_dtype,  # pytype: disable=wrong-arg-types  # numpy-scalars
+              QuantizedValue(m1_shape_and_dtype, [], m1_scale_shape_and_dtype,  # pyrefly: ignore[bad-argument-type]
                              qdtype, False, list(param.shape)),
-              QuantizedValue(m2_shape_and_dtype, [], m2_scale_shape_and_dtype,  # pytype: disable=wrong-arg-types  # numpy-scalars
+              QuantizedValue(m2_shape_and_dtype, [], m2_scale_shape_and_dtype,  # pyrefly: ignore[bad-argument-type]
                              qdtype, False, list(param.shape)),
               init_avg_grad_shape(param, frequent_directions and average_grad),
               init_training_metrics_shapes(
@@ -2408,10 +2408,10 @@ def distributed_shampoo(
         num_statistics, max_statistics_size,
         precond_dim(max_statistics_size)
     ]
-    global_stats = GlobalShardedParameterStats(  # pytype: disable=wrong-arg-types  # numpy-scalars
+    global_stats = GlobalShardedParameterStats(
         [statistics_shape, jnp.float32], [preconditioners_shape, jnp.float32],  # pyrefly: ignore[bad-argument-type]
         [[num_statistics], jnp.int32])  # pyrefly: ignore[bad-argument-type]
-    return ShampooState(  # pytype: disable=wrong-arg-types  # numpy-scalars
+    return ShampooState(
         count=[[], jnp.float32],  # pyrefly: ignore[bad-argument-type]
         stats=ShardedShampooStats(global_stats, local_stats))
 
@@ -2645,7 +2645,7 @@ def distributed_shampoo(
         grad = new_avg_grad / statistics_compute_steps
 
       def compute_updated_statistics():
-        return preconditioner.updated_statistics_from_grad(  # pytype: disable=wrong-arg-types
+        return preconditioner.updated_statistics_from_grad(
             state.statistics,
             grad,
             w1=w1,
@@ -2871,7 +2871,7 @@ def distributed_shampoo(
             all_statistics[current_replica],
             all_exponents[current_replica],
             all_paddings[current_replica],
-            _maybe_ix(all_preconditioners, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
+            _maybe_ix(all_preconditioners, current_replica),  # pyrefly: ignore[bad-argument-type]
         )
         preconditioners = jax.lax.all_gather(preconditioners, batch_axis_name)
         metrics = jax.lax.all_gather(metrics, batch_axis_name)
@@ -3109,9 +3109,9 @@ def distributed_shampoo(
            all_quantized_bucket_sizes[current_replica],
            all_exponents[current_replica],
            all_paddings[current_replica],
-           _maybe_ix(all_quantized_precond_mats, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
-           _maybe_ix(all_quantized_precond_diagonals, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
-           _maybe_ix(all_quantized_precond_bucket_sizes, current_replica),  # pytype: disable=wrong-arg-types  # lax-types
+           _maybe_ix(all_quantized_precond_mats, current_replica),  # pyrefly: ignore[bad-argument-type]
+           _maybe_ix(all_quantized_precond_diagonals, current_replica),  # pyrefly: ignore[bad-argument-type]
+           _maybe_ix(all_quantized_precond_bucket_sizes, current_replica),  # pyrefly: ignore[bad-argument-type]
        )
       quantized_preconditioners = jax.lax.all_gather(quantized_preconditioners,
                                                      batch_axis_name)

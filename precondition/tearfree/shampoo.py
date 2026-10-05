@@ -259,7 +259,7 @@ def _pspec(
         collections=None,
         tensor_split_dims_mapping=[-1, -1, -1],
     )
-    stats = [replicated((num_blocks, d, d)) for d in dims]  # pytype: disable=wrong-arg-types
+    stats = [replicated((num_blocks, d, d)) for d in dims]
     precond = stats
     return dict(stats=stats, roots=precond)
 

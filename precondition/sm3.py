@@ -74,7 +74,7 @@ def sm3(
     def _init(param):
       accumulators = [jnp.zeros([s]) for s in param.shape]
       momentum = _quantize_momentum(jnp.zeros_like(param))
-      return ParameterStats(accumulators, momentum)  # pytype: disable=wrong-arg-types  # numpy-scalars
+      return ParameterStats(accumulators, momentum)  # pyrefly: ignore[bad-argument-type]
 
     return SM3State(
         count=jnp.zeros([], jnp.int32), stats=jax.tree.map(_init, params))

@@ -167,8 +167,8 @@ def main(argv) -> None:
     for previous_directory in _USE_BEST_FROM.value:  # pyrefly: ignore[not-iterable]
       dfs.append(_read_pandas(previous_directory, dataset_name, sketch_size))
     df = pd.concat(dfs, axis=0)
-    df.sort_values('loss', inplace=True)  # pyrefly: ignore[no-matching-overload]
-    df.drop_duplicates('alg', inplace=True)  # pyrefly: ignore[no-matching-overload]
+    df.sort_values('loss', inplace=True)
+    df.drop_duplicates('alg', inplace=True)
     algs = df.alg.unique()
     hparams = []
     for alg in _ALGS.value:
