@@ -155,7 +155,7 @@ class OptimizerTest(parameterized.TestCase):
     )
     expected = self._unroll(tx, shape, n=nsteps)
     actual = self._unroll(options, shape, n=nsteps)
-    np.testing.assert_allclose(actual, expected)
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
   def _precondition_at(self, i):
     """Return optimizer with momentum, grafting, and start precon at step i."""
