@@ -48,12 +48,19 @@ class QuantizedValue:
   # We extend it for int16 quantization of PSD matrices.
   @classmethod
   def quantize(cls, fvalue, quantized_dtype, extract_diagonal=False):
-    """Returns quantized value and the bucket."""
+    """Returns quantized values and scales.
+
+    Integer quantization uses at least float32 for its scales and reconstructed
+    values. Floating-point storage modes retain their existing dtype behavior.
+    """
     if quantized_dtype == jnp.float32:
       return fvalue, [], []
     elif quantized_dtype == jnp.bfloat16:
       return fvalue.astype(jnp.bfloat16), [], []
 
+    # Integer bucket scales need enough range and precision to avoid rounding
+    # small values to zero or misrepresenting the signed integer endpoints.
+    fvalue = fvalue.astype(jnp.promote_types(fvalue.dtype, jnp.float32))
     float_dtype = fvalue.dtype
     if quantized_dtype == jnp.int8:
       # value -128 is not used.
