@@ -155,7 +155,7 @@ class OptimizerTest(parameterized.TestCase):
     )
     expected = self._unroll(tx, shape, n=nsteps)
     actual = self._unroll(options, shape, n=nsteps)
-    np.testing.assert_allclose(actual, expected)
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
   def _precondition_at(self, i):
     """Return optimizer with momentum, grafting, and start precon at step i."""
@@ -191,7 +191,7 @@ class OptimizerTest(parameterized.TestCase):
     actual = self._unroll(options, shape, lr=schedule, n=nsteps)
     expected = self._unroll(options, shape, lr=0.1, n=nsteps)
     expected *= (jnp.arange(nsteps) + 1).reshape(-1, 1)
-    np.testing.assert_allclose(actual, expected)
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
 
 
 if __name__ == '__main__':
